@@ -11,9 +11,9 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		A4EA6E242F4122E2007853A7 /* Smart_money */ = {
+		A4EA6E242F4122E2007853A7 /* App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = Smart_money;
+			path = App;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -32,7 +32,7 @@
 		A4EA6E192F4122E2007853A7 = {
 			isa = PBXGroup;
 			children = (
-				A4EA6E242F4122E2007853A7 /* Smart_money */,
+				A4EA6E242F4122E2007853A7 /* App */,
 				A4EA6E232F4122E2007853A7 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -61,7 +61,7 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				A4EA6E242F4122E2007853A7 /* Smart_money */,
+				A4EA6E242F4122E2007853A7 /* App */,
 			);
 			name = Smart_money;
 			packageProductDependencies = (
