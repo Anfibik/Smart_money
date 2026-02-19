@@ -168,6 +168,7 @@ struct ContentView: View {
     }
 
     private func resetInitialSetup() {
+        budgetViewModel.resetMoneyData()
         hasCompletedSystemSetup = false
         systemSetupPayload = ""
         isShowingInitialSetup = true

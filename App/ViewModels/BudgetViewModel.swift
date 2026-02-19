@@ -29,13 +29,16 @@ final class BudgetViewModel: ObservableObject {
     private var lastIncomeToBankByCategoryID: [UUID: Double] = [:]
     private var lastBankAutoDistributedBySubcategoryID: [UUID: Double] = [:]
     private var bankBalance: Double = 0
+    private let persistenceService: PersistenceService
 
     init(
         income: Double,
         settings: BudgetSettings,
-        budgetService: BudgetService
+        budgetService: BudgetService,
+        persistenceService: PersistenceService
     ) {
         _ = budgetService
+        self.persistenceService = persistenceService
         self.income = 0
         self.settings = settings
         self.distribution = BudgetDistribution(
@@ -50,6 +53,12 @@ final class BudgetViewModel: ObservableObject {
         syncLastIncomeToBankStorageWithSettings()
         syncLastBankAutoDistributionStorageWithSettings()
 
+        if let persistedState = persistenceService.loadBudgetState() {
+            restoreFromPersistedState(persistedState)
+            recalculate()
+            return
+        }
+
         let initialIncome = max(0, income)
         if initialIncome > 0 {
             self.income = initialIncome
@@ -61,7 +70,12 @@ final class BudgetViewModel: ObservableObject {
     }
 
     convenience init(income: Double = 0, settings: BudgetSettings) {
-        self.init(income: income, settings: settings, budgetService: BudgetService())
+        self.init(
+            income: income,
+            settings: settings,
+            budgetService: BudgetService(),
+            persistenceService: PersistenceService()
+        )
     }
 
     convenience init() {
@@ -70,6 +84,7 @@ final class BudgetViewModel: ObservableObject {
 
     func recalculate() {
         distribution = buildDistribution()
+        persistCurrentState()
     }
 
     func setIncome(_ newValue: Double) {
@@ -108,6 +123,31 @@ final class BudgetViewModel: ObservableObject {
         syncLastBankAutoDistributionStorageWithSettings()
         applyIncomeDelta(normalized)
         resolveMinimumDeficitsFromBank(trackAutoDistribution: true)
+        recalculate()
+    }
+
+    func resetMoneyData() {
+        income = 0
+        lastIncomeAmount = 0
+        bankBalance = 0
+
+        allocatedBySubcategoryID = [:]
+        categoryTargetBaselineByID = [:]
+        lastIncomeToBankByCategoryID = [:]
+        lastBankAutoDistributedBySubcategoryID = [:]
+
+        for categoryIndex in settings.categories.indices {
+            for subcategoryIndex in settings.categories[categoryIndex].subcategories.indices {
+                settings.categories[categoryIndex].subcategories[subcategoryIndex].spentAmount = 0
+            }
+        }
+
+        syncAllocationStorageWithSettings()
+        syncTargetBaselineStorageWithSettings()
+        syncLastIncomeToBankStorageWithSettings()
+        syncLastBankAutoDistributionStorageWithSettings()
+
+        persistenceService.clearBudgetState()
         recalculate()
     }
 
@@ -830,6 +870,48 @@ final class BudgetViewModel: ObservableObject {
                existing.priority == selectedLevel.rawValue {
                 settings.categories[categoryIndex].subcategories[index].priority = SubcategoryPriorityLevel.low.rawValue
             }
+        }
+    }
+
+    private func persistCurrentState() {
+        let state = BudgetPersistedState(
+            income: income,
+            lastIncomeAmount: lastIncomeAmount,
+            settings: settings,
+            allocatedBySubcategoryID: encodeUUIDMap(allocatedBySubcategoryID),
+            categoryTargetBaselineByID: encodeUUIDMap(categoryTargetBaselineByID),
+            lastIncomeToBankByCategoryID: encodeUUIDMap(lastIncomeToBankByCategoryID),
+            lastBankAutoDistributedBySubcategoryID: encodeUUIDMap(lastBankAutoDistributedBySubcategoryID),
+            bankBalance: bankBalance
+        )
+        persistenceService.saveBudgetState(state)
+    }
+
+    private func restoreFromPersistedState(_ persistedState: BudgetPersistedState) {
+        income = max(0, persistedState.income)
+        lastIncomeAmount = max(0, persistedState.lastIncomeAmount)
+        settings = persistedState.settings
+
+        allocatedBySubcategoryID = decodeUUIDMap(persistedState.allocatedBySubcategoryID)
+        categoryTargetBaselineByID = decodeUUIDMap(persistedState.categoryTargetBaselineByID)
+        lastIncomeToBankByCategoryID = decodeUUIDMap(persistedState.lastIncomeToBankByCategoryID)
+        lastBankAutoDistributedBySubcategoryID = decodeUUIDMap(persistedState.lastBankAutoDistributedBySubcategoryID)
+        bankBalance = max(0, persistedState.bankBalance)
+
+        syncAllocationStorageWithSettings()
+        syncTargetBaselineStorageWithSettings()
+        syncLastIncomeToBankStorageWithSettings()
+        syncLastBankAutoDistributionStorageWithSettings()
+    }
+
+    private func encodeUUIDMap(_ map: [UUID: Double]) -> [String: Double] {
+        Dictionary(uniqueKeysWithValues: map.map { ($0.key.uuidString, $0.value) })
+    }
+
+    private func decodeUUIDMap(_ map: [String: Double]) -> [UUID: Double] {
+        map.reduce(into: [:]) { partialResult, pair in
+            guard let id = UUID(uuidString: pair.key) else { return }
+            partialResult[id] = pair.value
         }
     }
 }

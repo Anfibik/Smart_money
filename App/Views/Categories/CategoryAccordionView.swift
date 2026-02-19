@@ -147,14 +147,15 @@ struct CategoryAccordionView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
 
-                    .buttonStyle(.plain)
+                    .buttonStyle(NoFlashButtonStyle())
+                    .zIndex(1)
+
+                    let distributedInsideCategory = category.subcategoryAllocations.reduce(0.0) { partialResult, subcategory in
+                        partialResult + subcategory.allocatedAmount
+                    }
+                    let distributedWithBank = distributedInsideCategory + category.lastIncomeToBankAmount
 
                     if isExpanded(category.id) {
-                        let distributedInsideCategory = category.subcategoryAllocations.reduce(0.0) { partialResult, subcategory in
-                            partialResult + subcategory.allocatedAmount
-                        }
-                        let distributedWithBank = distributedInsideCategory + category.lastIncomeToBankAmount
-
                         LazyVGrid(columns: gridColumns, spacing: 8) {
                             ForEach(category.subcategoryAllocations) { subcategory in
                                 let actualPercent = distributedWithBank > 0
@@ -230,10 +231,17 @@ struct CategoryAccordionView: View {
                             .buttonStyle(.plain)
                             .disabled(maxAllowedPercentForAdd(categoryType: category.type) <= 0)
                         }
-                        .transition(.opacity.combined(with: .move(edge: .top)))
+                        .padding(.top, 2)
+                        .clipped()
+                        .transition(
+                            .asymmetric(
+                                insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)),
+                                removal: .opacity.combined(with: .scale(scale: 0.98, anchor: .top))
+                            )
+                        )
+                        .zIndex(0)
                     }
                 }
-                .animation(.easeInOut(duration: 0.2), value: expandedCategoryIDs)
             }
 
             bankRow
@@ -558,13 +566,14 @@ struct CategoryAccordionView: View {
     }
 
     private func toggle(categoryID: UUID) {
-        if expandedCategoryIDs.contains(categoryID) {
-            expandedCategoryIDs.remove(categoryID)
-        } else {
-            expandedCategoryIDs.insert(categoryID)
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
+            if expandedCategoryIDs.contains(categoryID) {
+                expandedCategoryIDs.remove(categoryID)
+            } else {
+                expandedCategoryIDs.insert(categoryID)
+            }
         }
     }
-
     private var canCreateSubcategory: Bool {
         guard let target = addSubcategoryTarget else { return false }
         let normalizedName = subcategoryNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -952,4 +961,10 @@ private struct PendingPriorityChange: Identifiable {
     let fromName: String
     let toName: String
     let form: PriorityForm
+}
+
+private struct NoFlashButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+    }
 }
