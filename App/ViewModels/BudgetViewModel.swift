@@ -34,10 +34,8 @@ final class BudgetViewModel: ObservableObject {
     init(
         income: Double,
         settings: BudgetSettings,
-        budgetService: BudgetService,
         persistenceService: PersistenceService
     ) {
-        _ = budgetService
         self.persistenceService = persistenceService
         self.income = 0
         self.settings = settings
@@ -73,7 +71,6 @@ final class BudgetViewModel: ObservableObject {
         self.init(
             income: income,
             settings: settings,
-            budgetService: BudgetService(),
             persistenceService: PersistenceService()
         )
     }
@@ -151,13 +148,18 @@ final class BudgetViewModel: ObservableObject {
         recalculate()
     }
 
+    func resetToInitialSystemState() {
+        settings = BudgetSettings()
+        resetMoneyData()
+    }
+
     func updateSettings(_ newSettings: BudgetSettings) {
         settings = newSettings
         syncAllocationStorageWithSettings()
         syncTargetBaselineStorageWithSettings()
         syncLastIncomeToBankStorageWithSettings()
         syncLastBankAutoDistributionStorageWithSettings()
-        resolveMinimumDeficitsFromBank()
+        resolveMinimumDeficitsFromBankForCurrentIteration()
         recalculate()
     }
 
@@ -184,7 +186,33 @@ final class BudgetViewModel: ObservableObject {
         }
 
         settings.categories[categoryIndex].subcategories[subcategoryIndex].spentAmount += normalizedAmount
-        resolveMinimumDeficitsFromBank()
+        resolveMinimumDeficitsFromBankForCurrentIteration()
+        recalculate()
+    }
+
+    func transferFromSubcategoryToBank(
+        categoryType: ExpenseCategoryType,
+        subcategoryID: UUID,
+        amount: Double
+    ) {
+        let normalizedAmount = max(0, amount)
+        guard normalizedAmount > 0 else { return }
+
+        guard let categoryIndex = settings.categories.firstIndex(where: { $0.type == categoryType }) else { return }
+        guard let subcategoryIndex = settings.categories[categoryIndex].subcategories.firstIndex(where: { $0.id == subcategoryID }) else { return }
+
+        let subcategory = settings.categories[categoryIndex].subcategories[subcategoryIndex]
+        let allocated = allocatedBySubcategoryID[subcategoryID, default: 0]
+        let spent = subcategory.spentAmount
+        let remaining = max(0, allocated - spent)
+        let minimumLevel = minimumFloorForRebalance(for: subcategory)
+        let maxWithdrawable = max(0, remaining - minimumLevel)
+
+        guard normalizedAmount <= maxWithdrawable + 0.0001 else { return }
+
+        allocatedBySubcategoryID[subcategoryID] = max(0, allocated - normalizedAmount)
+        bankBalance += normalizedAmount
+        resolveMinimumDeficitsFromBankForCurrentIteration()
         recalculate()
     }
 
@@ -229,7 +257,7 @@ final class BudgetViewModel: ObservableObject {
         syncLastBankAutoDistributionStorageWithSettings()
         enforceUniquePriority(in: categoryIndex, selectedLevel: priority, selectedID: newSubcategoryID)
         rebalanceForNewSubcategoryMinimum(in: categoryIndex, newSubcategoryID: newSubcategoryID)
-        resolveMinimumDeficitsFromBank()
+        resolveMinimumDeficitsFromBankForCurrentIteration()
         recalculate()
     }
 
@@ -285,7 +313,7 @@ final class BudgetViewModel: ObservableObject {
         settings.categories[categoryIndex].subcategories[subIndex] = sub
         enforceUniquePriority(in: categoryIndex, selectedLevel: priority, selectedID: subcategoryID)
         moveExcessAboveMaxToBank(categoryType: categoryType, subcategoryID: subcategoryID)
-        resolveMinimumDeficitsFromBank()
+        resolveMinimumDeficitsFromBankForCurrentIteration()
         recalculate()
     }
 
@@ -320,7 +348,7 @@ final class BudgetViewModel: ObservableObject {
         }
 
         guard didChange else { return }
-        resolveMinimumDeficitsFromBank()
+        resolveMinimumDeficitsFromBankForCurrentIteration()
         recalculate()
     }
 
@@ -338,7 +366,7 @@ final class BudgetViewModel: ObservableObject {
         settings.categories[categoryIndex].subcategories.remove(at: subIndex)
         allocatedBySubcategoryID.removeValue(forKey: subcategoryID)
         syncLastBankAutoDistributionStorageWithSettings()
-        resolveMinimumDeficitsFromBank()
+        resolveMinimumDeficitsFromBankForCurrentIteration()
         recalculate()
     }
 
@@ -397,6 +425,11 @@ final class BudgetViewModel: ObservableObject {
             .filter { validSubcategoryIDs.contains($0.key) }
     }
 
+
+    private func resolveMinimumDeficitsFromBankForCurrentIteration() {
+        lastBankAutoDistributedBySubcategoryID = [:]
+        resolveMinimumDeficitsFromBank(trackAutoDistribution: true)
+    }
     private func resolveMinimumDeficitsFromBank(trackAutoDistribution: Bool = false) {
         guard bankBalance > 0.0001 else { return }
 

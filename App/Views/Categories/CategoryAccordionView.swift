@@ -25,6 +25,7 @@ struct CategoryAccordionView: View {
         SubcategoryPriorityLevel
     ) -> Void
     let onDeleteSubcategory: (ExpenseCategoryType, UUID) -> Void
+    let onWithdrawFunds: (ExpenseCategoryType, UUID, Double) -> Void
 
     @State private var expandedCategoryIDs: Set<UUID>
     @State private var expenseTarget: ExpenseTarget?
@@ -43,12 +44,11 @@ struct CategoryAccordionView: View {
     @State private var editMinAmountInput: String = ""
     @State private var editMaxAmountInput: String = ""
     @State private var editPriority: SubcategoryPriorityLevel = .low
+    @State private var withdrawAmountInput: String = ""
     @State private var suppressTapAfterLongPress: Bool = false
     @FocusState private var isExpenseFieldFocused: Bool
     @FocusState private var isAddSubcategoryNameFocused: Bool
     @FocusState private var isEditNameFocused: Bool
-
-    private let gridColumns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
 
     init(
         distribution: BudgetDistribution,
@@ -73,7 +73,8 @@ struct CategoryAccordionView: View {
             Double,
             SubcategoryPriorityLevel
         ) -> Void,
-        onDeleteSubcategory: @escaping (ExpenseCategoryType, UUID) -> Void
+        onDeleteSubcategory: @escaping (ExpenseCategoryType, UUID) -> Void,
+        onWithdrawFunds: @escaping (ExpenseCategoryType, UUID, Double) -> Void
     ) {
         self.distribution = distribution
         self.currencyCode = currencyCode
@@ -83,6 +84,7 @@ struct CategoryAccordionView: View {
         self.onAddSubcategory = onAddSubcategory
         self.onUpdateSubcategory = onUpdateSubcategory
         self.onDeleteSubcategory = onDeleteSubcategory
+        self.onWithdrawFunds = onWithdrawFunds
 
         let essentialsID = distribution.categoryAllocations
             .first(where: { $0.type == .essentials })?
@@ -90,161 +92,63 @@ struct CategoryAccordionView: View {
         _expandedCategoryIDs = State(initialValue: Set([essentialsID].compactMap { $0 }))
     }
 
+
     var body: some View {
         VStack(spacing: 8) {
             ForEach(distribution.categoryAllocations) { category in
-                VStack(spacing: 6) {
-                    Button {
-                        toggle(categoryID: category.id)
-                    } label: {
-                        let categorySpent = category.subcategoryAllocations.reduce(0) { $0 + $1.spentAmount }
-                        let categoryRemaining = category.subcategoryAllocations.reduce(0) { $0 + $1.remainingAmount }
-                        let categoryLastIncome = lastIncomeAmount * (category.percentage / 100.0)
+                let categorySpent = category.subcategoryAllocations.reduce(0) { $0 + $1.spentAmount }
+                let categoryRemaining = category.subcategoryAllocations.reduce(0) { $0 + $1.remainingAmount }
+                let categoryLastIncome = lastIncomeAmount * (category.percentage / 100.0)
+                let isCategoryExpanded = isExpanded(category.id)
 
-                        HStack(alignment: .top, spacing: 6) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 6) {
-                                    Text(category.type.title)
-                                        .font(.headline)
+                VStack(spacing: 0) {
+                    CategoryHeaderView(
+                        category: category,
+                        currencyCode: currencyCode,
+                        categoryRemaining: categoryRemaining,
+                        categorySpent: categorySpent,
+                        categoryLastIncome: categoryLastIncome,
+                        isExpanded: isCategoryExpanded,
+                        onTap: { toggle(categoryID: category.id) }
+                    )
 
-                                    Text("\(category.percentage, specifier: "%.0f")%")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
+                    if isCategoryExpanded {
+                        CategoryExpandedContentView(
+                            category: category,
+                            currencyCode: currencyCode,
+                            canAddSubcategory: maxAllowedPercentForAdd(categoryType: category.type) > 0,
+                            onSubcategoryTap: { subcategory in
+                                guard !suppressTapAfterLongPress else { return }
+                                openExpenseSheet(for: category.type, subcategory: subcategory)
+                            },
+                            onSubcategoryLongPress: { subcategory in
+                                suppressTapAfterLongPress = true
+                                openEditSubcategorySheet(for: category.type, subcategory: subcategory)
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                    suppressTapAfterLongPress = false
                                 }
-
-                                Text(categoryRemaining, format: .currency(code: currencyCode))
-                                    .font(.subheadline.weight(.semibold))
-
-                                Text("В банку: \(category.lastIncomeToBankAmount, format: .currency(code: currencyCode))")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            Spacer(minLength: 8)
-
-                            VStack(alignment: .trailing, spacing: 6) {
-                                Text("+ \(categoryLastIncome, format: .currency(code: currencyCode))")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-
-                                Text("- \(categorySpent, format: .currency(code: currencyCode))")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-
-                                Text("Дефицит: -\(category.deficitAmount, format: .currency(code: currencyCode))")
-                                    .font(.caption)
-                                    .foregroundColor(category.deficitAmount > 0 ? .red : .secondary)
-                            }
-
-                            Image(systemName: isExpanded(category.id) ? "chevron.up" : "chevron.down")
-                                .foregroundStyle(.secondary)
-                                .padding(.top, 2)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 14)
-                        .frame(maxWidth: .infinity)
-                        .background(Color(.systemGray6))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
-
-                    .buttonStyle(NoFlashButtonStyle())
-                    .zIndex(1)
-
-                    let distributedInsideCategory = category.subcategoryAllocations.reduce(0.0) { partialResult, subcategory in
-                        partialResult + subcategory.allocatedAmount
-                    }
-                    let distributedWithBank = distributedInsideCategory + category.lastIncomeToBankAmount
-
-                    if isExpanded(category.id) {
-                        LazyVGrid(columns: gridColumns, spacing: 8) {
-                            ForEach(category.subcategoryAllocations) { subcategory in
-                                let actualPercent = distributedWithBank > 0
-                                    ? (subcategory.allocatedAmount / distributedWithBank) * 100.0
-                                    : 0
-
-                                VStack(alignment: .leading, spacing: 6) {
-                                    HStack(alignment: .top, spacing: 6) {
-                                        Text(subcategory.name)
-                                            .font(.caption.weight(.semibold))
-                                            .lineLimit(1)
-                                            .minimumScaleFactor(0.7)
-                                            .allowsTightening(true)
-
-                                        Spacer(minLength: 4)
-
-                                        Text("\(formattedPercent(subcategory.basePercentage))%")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(1)
-                                            .minimumScaleFactor(0.7)
-                                    }
-
-                                    Text("Текущий: \(actualPercent, specifier: "%.1f")%")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.7)
-
-                                    Text(subcategory.remainingAmount, format: .currency(code: currencyCode))
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.7)
-
-                                    Text("Дефицит: -\(subcategory.deficitAmount, format: .currency(code: currencyCode))")
-                                        .font(.caption2)
-                                        .foregroundColor(subcategory.deficitAmount > 0 ? .red : .secondary)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.7)
-                                }
-                                .padding(8)
-                                .frame(maxWidth: .infinity, minHeight: 78, alignment: .topLeading)
-                                .background(Color(.secondarySystemBackground))
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    guard !suppressTapAfterLongPress else { return }
-                                    openExpenseSheet(for: category.type, subcategory: subcategory)
-                                }
-                                .onLongPressGesture(minimumDuration: 0.5) {
-                                    suppressTapAfterLongPress = true
-                                    openEditSubcategorySheet(for: category.type, subcategory: subcategory)
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                        suppressTapAfterLongPress = false
-                                    }
-                                }
-                            }
-
-                            Button {
+                            },
+                            onAddTap: {
                                 openAddSubcategorySheet(for: category)
-                            } label: {
-                                let addFreePercent = maxAllowedPercentForAdd(categoryType: category.type)
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .fill(addFreePercent > 0 ? Color(.secondarySystemBackground) : Color(.systemGray5))
-                                    Image(systemName: "plus")
-                                        .font(.title2.weight(.semibold))
-                                        .foregroundStyle(.secondary)
-                                }
-                                .frame(maxWidth: .infinity, minHeight: 78)
                             }
-                            .buttonStyle(.plain)
-                            .disabled(maxAllowedPercentForAdd(categoryType: category.type) <= 0)
-                        }
-                        .padding(.top, 2)
-                        .clipped()
+                        )
                         .transition(
                             .asymmetric(
                                 insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)),
                                 removal: .opacity.combined(with: .scale(scale: 0.98, anchor: .top))
                             )
                         )
-                        .zIndex(0)
                     }
                 }
+                .background(Color(.systemGray6))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
             }
 
-            bankRow
+            BankSummaryView(
+                bankAvailableAmount: bankAvailableAmount,
+                lines: distribution.lastBankAutoDistributions,
+                currencyCode: currencyCode
+            )
         }
         .sheet(item: $expenseTarget) { target in
             let normalizedInput = expenseInput.replacingOccurrences(of: ",", with: ".")
@@ -420,6 +324,11 @@ struct CategoryAccordionView: View {
                         let availableForCard = maxAllowedPercentForEdit(target: target)
                         let requestedPercent = nonNegativeValue(from: editPercentInput)
                         let availableMoneyForCard = maxAllowedMoneyForEdit(target: target)
+                        let currentRemaining = currentRemainingForEdit(target: target)
+                        let minimumLevel = minimumLevelForEdit(target: target)
+                        let maxWithdrawable = max(0, currentRemaining - minimumLevel)
+                        let requestedWithdraw = nonNegativeValue(from: withdrawAmountInput)
+                        let canWithdraw = requestedWithdraw > 0 && requestedWithdraw <= maxWithdrawable + 0.0001
 
                         Text("Категория: \(target.categoryTitle)")
                             .font(.subheadline)
@@ -475,6 +384,40 @@ struct CategoryAccordionView: View {
                         .buttonStyle(.borderedProminent)
                         .disabled(!canSaveEditedSubcategory)
 
+                        Divider()
+                            .padding(.vertical, 2)
+
+                        Text("Изъятие средств в банку")
+                            .font(.subheadline.weight(.semibold))
+
+                        Text("Текущий остаток: \(currentRemaining, format: .currency(code: currencyCode))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Text("Минимальный уровень: \(minimumLevel, format: .currency(code: currencyCode))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Text("Можно изъять: \(maxWithdrawable, format: .currency(code: currencyCode))")
+                            .font(.caption)
+                            .foregroundColor(maxWithdrawable > 0 ? .secondary : .red)
+
+                        TextField("Сумма для изъятия", text: $withdrawAmountInput)
+                            .keyboardType(.decimalPad)
+                            .textFieldStyle(.roundedBorder)
+
+                        if requestedWithdraw > maxWithdrawable, requestedWithdraw > 0 {
+                            Text("Сумма слишком большая: после изъятия остаток не может быть ниже минимального уровня.")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+
+                        Button("Изъять средства") {
+                            withdrawFromEditedSubcategory(target: target)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!canWithdraw)
+
                         if !target.isSystem {
                             Button("Удалить карточку", role: .destructive) {
                                 onDeleteSubcategory(target.categoryType, target.subcategoryID)
@@ -519,46 +462,6 @@ struct CategoryAccordionView: View {
                 secondaryButton: .cancel(Text("Отмена"))
             )
         }
-    }
-
-    private var bankRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Банка")
-                    .font(.headline)
-
-                Spacer()
-
-                Text(bankAvailableAmount, format: .currency(code: currencyCode))
-                    .font(.subheadline.weight(.semibold))
-            }
-
-            if distribution.lastBankAutoDistributions.isEmpty {
-                Text("Автораспределение: 0")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(distribution.lastBankAutoDistributions) { line in
-                    HStack(spacing: 8) {
-                        Text(line.name)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-
-                        Spacer(minLength: 8)
-
-                        Text("- \(line.amount, format: .currency(code: currencyCode))")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity)
-        .background(Color(.systemGray6))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     private func isExpanded(_ id: UUID) -> Bool {
@@ -621,6 +524,7 @@ struct CategoryAccordionView: View {
             editMaxAmountInput = ""
         }
         editPriority = SubcategoryPriorityLevel(rawValue: subcategory.priority) ?? .low
+        withdrawAmountInput = ""
         editSubcategoryTarget = EditSubcategoryTarget(
             subcategoryID: subcategory.id,
             categoryType: categoryType,
@@ -683,6 +587,18 @@ struct CategoryAccordionView: View {
             editPriority
         )
         editSubcategoryTarget = nil
+    }
+
+    private func withdrawFromEditedSubcategory(target: EditSubcategoryTarget) {
+        let requested = nonNegativeValue(from: withdrawAmountInput)
+        let currentRemaining = currentRemainingForEdit(target: target)
+        let minimumLevel = minimumLevelForEdit(target: target)
+        let maxWithdrawable = max(0, currentRemaining - minimumLevel)
+
+        guard requested > 0, requested <= maxWithdrawable + 0.0001 else { return }
+
+        onWithdrawFunds(target.categoryType, target.subcategoryID, requested)
+        withdrawAmountInput = ""
     }
 
     private func priorityInfoLine(categoryType: ExpenseCategoryType) -> some View {
@@ -902,6 +818,22 @@ struct CategoryAccordionView: View {
         return freeInsideCategory + bankAvailableAmount
     }
 
+    private func currentRemainingForEdit(target: EditSubcategoryTarget) -> Double {
+        distribution.categoryAllocations
+            .first(where: { $0.type == target.categoryType })?
+            .subcategoryAllocations
+            .first(where: { $0.id == target.subcategoryID })?
+            .remainingAmount ?? 0
+    }
+
+    private func minimumLevelForEdit(target: EditSubcategoryTarget) -> Double {
+        distribution.categoryAllocations
+            .first(where: { $0.type == target.categoryType })?
+            .subcategoryAllocations
+            .first(where: { $0.id == target.subcategoryID })?
+            .minLimit ?? 0
+    }
+
     private func minimumCommitment(for subcategory: SubcategoryAllocation, categoryAmount: Double) -> Double {
         let maxCap = maxCap(for: subcategory)
         let minAmountTarget = min(max(0, subcategory.minLimit ?? 0), maxCap)
@@ -919,7 +851,6 @@ struct CategoryAccordionView: View {
         }
         return maxLimit
     }
-
     private func formattedPercent(_ value: Double) -> String {
         String(format: "%.2f", value).replacingOccurrences(of: ".00", with: "")
     }
@@ -961,10 +892,4 @@ private struct PendingPriorityChange: Identifiable {
     let fromName: String
     let toName: String
     let form: PriorityForm
-}
-
-private struct NoFlashButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-    }
 }

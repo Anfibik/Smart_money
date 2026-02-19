@@ -88,6 +88,13 @@ struct ContentView: View {
                                 categoryType: categoryType,
                                 subcategoryID: subcategoryID
                             )
+                        },
+                        onWithdrawFunds: { categoryType, subcategoryID, amount in
+                            budgetViewModel.transferFromSubcategoryToBank(
+                                categoryType: categoryType,
+                                subcategoryID: subcategoryID,
+                                amount: amount
+                            )
                         }
                     )
                 }
@@ -168,7 +175,7 @@ struct ContentView: View {
     }
 
     private func resetInitialSetup() {
-        budgetViewModel.resetMoneyData()
+        budgetViewModel.resetToInitialSystemState()
         hasCompletedSystemSetup = false
         systemSetupPayload = ""
         isShowingInitialSetup = true

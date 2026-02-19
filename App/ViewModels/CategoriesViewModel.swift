@@ -1,10 +1,3 @@
-//
-//  CategoriesViewModel.swift
-//  Smart_money
-//
-//  Created by Filobokov Andrii on 15.02.2026.
-//
-
 import Foundation
 import Combine
 
