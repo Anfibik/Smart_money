@@ -114,7 +114,7 @@ struct InitialSystemSetupView: View {
             }
         }
         .padding(10)
-        .background(Color(.systemGray6))
+        .background(AppTheme.panelBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 

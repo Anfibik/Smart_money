@@ -27,7 +27,7 @@ struct BankSummaryView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
-        .background(Color(.systemGray6))
+        .background(AppTheme.panelBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }

@@ -30,13 +30,16 @@ final class BudgetViewModel: ObservableObject {
     private var lastBankAutoDistributedBySubcategoryID: [UUID: Double] = [:]
     private var bankBalance: Double = 0
     private let persistenceService: PersistenceService
+    private let allocationEngine: BudgetAllocationEngine
 
     init(
         income: Double,
         settings: BudgetSettings,
-        persistenceService: PersistenceService
+        persistenceService: PersistenceService,
+        allocationEngine: BudgetAllocationEngine
     ) {
         self.persistenceService = persistenceService
+        self.allocationEngine = allocationEngine
         self.income = 0
         self.settings = settings
         self.distribution = BudgetDistribution(
@@ -50,7 +53,6 @@ final class BudgetViewModel: ObservableObject {
         syncTargetBaselineStorageWithSettings()
         syncLastIncomeToBankStorageWithSettings()
         syncLastBankAutoDistributionStorageWithSettings()
-
         if let persistedState = persistenceService.loadBudgetState() {
             restoreFromPersistedState(persistedState)
             recalculate()
@@ -61,7 +63,6 @@ final class BudgetViewModel: ObservableObject {
         if initialIncome > 0 {
             self.income = initialIncome
             applyIncomeDelta(initialIncome)
-            resolveMinimumDeficitsFromBank(trackAutoDistribution: true)
         }
 
         recalculate()
@@ -71,7 +72,8 @@ final class BudgetViewModel: ObservableObject {
         self.init(
             income: income,
             settings: settings,
-            persistenceService: PersistenceService()
+            persistenceService: PersistenceService(),
+            allocationEngine: BudgetAllocationEngine()
         )
     }
 
@@ -98,11 +100,9 @@ final class BudgetViewModel: ObservableObject {
         syncTargetBaselineStorageWithSettings()
         syncLastIncomeToBankStorageWithSettings()
         syncLastBankAutoDistributionStorageWithSettings()
-
         if normalized > 0 {
             income = normalized
             applyIncomeDelta(normalized)
-            resolveMinimumDeficitsFromBank(trackAutoDistribution: true)
         }
 
         recalculate()
@@ -119,7 +119,6 @@ final class BudgetViewModel: ObservableObject {
         syncLastIncomeToBankStorageWithSettings()
         syncLastBankAutoDistributionStorageWithSettings()
         applyIncomeDelta(normalized)
-        resolveMinimumDeficitsFromBank(trackAutoDistribution: true)
         recalculate()
     }
 
@@ -159,7 +158,6 @@ final class BudgetViewModel: ObservableObject {
         syncTargetBaselineStorageWithSettings()
         syncLastIncomeToBankStorageWithSettings()
         syncLastBankAutoDistributionStorageWithSettings()
-        resolveMinimumDeficitsFromBankForCurrentIteration()
         recalculate()
     }
 
@@ -186,7 +184,6 @@ final class BudgetViewModel: ObservableObject {
         }
 
         settings.categories[categoryIndex].subcategories[subcategoryIndex].spentAmount += normalizedAmount
-        resolveMinimumDeficitsFromBankForCurrentIteration()
         recalculate()
     }
 
@@ -212,13 +209,44 @@ final class BudgetViewModel: ObservableObject {
 
         allocatedBySubcategoryID[subcategoryID] = max(0, allocated - normalizedAmount)
         bankBalance += normalizedAmount
-        resolveMinimumDeficitsFromBankForCurrentIteration()
+        recalculate()
+    }
+
+    func transferFromBankToSubcategory(
+        categoryType: ExpenseCategoryType,
+        subcategoryID: UUID,
+        amount: Double
+    ) {
+        let normalizedAmount = max(0, amount)
+        guard normalizedAmount > 0 else { return }
+        guard normalizedAmount <= bankAvailableAmount + 0.0001 else { return }
+
+        guard let categoryIndex = settings.categories.firstIndex(where: { $0.type == categoryType }) else { return }
+        guard let subcategoryIndex = settings.categories[categoryIndex].subcategories.firstIndex(where: { $0.id == subcategoryID }) else { return }
+
+        let subcategory = settings.categories[categoryIndex].subcategories[subcategoryIndex]
+        let allocated = allocatedBySubcategoryID[subcategoryID, default: 0]
+        let spent = subcategory.spentAmount
+        let remaining = max(0, allocated - spent)
+
+        let allowedByMax: Double
+        if let maxLimit = subcategory.maxLimit, maxLimit > 0 {
+            allowedByMax = max(0, maxLimit - remaining)
+        } else {
+            allowedByMax = bankAvailableAmount
+        }
+
+        guard normalizedAmount <= allowedByMax + 0.0001 else { return }
+
+        bankBalance -= normalizedAmount
+        allocatedBySubcategoryID[subcategoryID, default: 0] += normalizedAmount
         recalculate()
     }
 
     func addCustomSubcategory(
         categoryType: ExpenseCategoryType,
         name: String,
+        iconName: String,
         percentage: Double,
         minLimit: Double,
         maxLimit: Double,
@@ -245,6 +273,7 @@ final class BudgetViewModel: ObservableObject {
         let subcategory = Subcategory(
             id: newSubcategoryID,
             name: trimmedName,
+            iconName: SubcategoryIconCatalog.normalized(iconName),
             percentage: normalizedPercentage,
             fixedMinimumPercentage: nil,
             minLimit: normalizedMinLimit > 0 ? normalizedMinLimit : nil,
@@ -257,7 +286,6 @@ final class BudgetViewModel: ObservableObject {
         syncLastBankAutoDistributionStorageWithSettings()
         enforceUniquePriority(in: categoryIndex, selectedLevel: priority, selectedID: newSubcategoryID)
         rebalanceForNewSubcategoryMinimum(in: categoryIndex, newSubcategoryID: newSubcategoryID)
-        resolveMinimumDeficitsFromBankForCurrentIteration()
         recalculate()
     }
 
@@ -265,6 +293,7 @@ final class BudgetViewModel: ObservableObject {
         categoryType: ExpenseCategoryType,
         subcategoryID: UUID,
         name: String,
+        iconName: String,
         percentage: Double,
         minLimit: Double,
         maxLimit: Double,
@@ -304,6 +333,7 @@ final class BudgetViewModel: ObservableObject {
             sub.name = normalizedName
         }
 
+        sub.iconName = SubcategoryIconCatalog.normalized(iconName)
         sub.percentage = normalizedPercentage
         sub.fixedMinimumPercentage = nil
         sub.minLimit = finalMinLimit > 0 ? finalMinLimit : nil
@@ -313,7 +343,6 @@ final class BudgetViewModel: ObservableObject {
         settings.categories[categoryIndex].subcategories[subIndex] = sub
         enforceUniquePriority(in: categoryIndex, selectedLevel: priority, selectedID: subcategoryID)
         moveExcessAboveMaxToBank(categoryType: categoryType, subcategoryID: subcategoryID)
-        resolveMinimumDeficitsFromBankForCurrentIteration()
         recalculate()
     }
 
@@ -348,7 +377,6 @@ final class BudgetViewModel: ObservableObject {
         }
 
         guard didChange else { return }
-        resolveMinimumDeficitsFromBankForCurrentIteration()
         recalculate()
     }
 
@@ -366,7 +394,6 @@ final class BudgetViewModel: ObservableObject {
         settings.categories[categoryIndex].subcategories.remove(at: subIndex)
         allocatedBySubcategoryID.removeValue(forKey: subcategoryID)
         syncLastBankAutoDistributionStorageWithSettings()
-        resolveMinimumDeficitsFromBankForCurrentIteration()
         recalculate()
     }
 
@@ -424,261 +451,16 @@ final class BudgetViewModel: ObservableObject {
         lastBankAutoDistributedBySubcategoryID = lastBankAutoDistributedBySubcategoryID
             .filter { validSubcategoryIDs.contains($0.key) }
     }
-
-
-    private func resolveMinimumDeficitsFromBankForCurrentIteration() {
-        lastBankAutoDistributedBySubcategoryID = [:]
-        resolveMinimumDeficitsFromBank(trackAutoDistribution: true)
-    }
-    private func resolveMinimumDeficitsFromBank(trackAutoDistribution: Bool = false) {
-        guard bankBalance > 0.0001 else { return }
-
-        var remainingBankAmount = bankBalance
-        let needs = minimumDeficitNeeds()
-        guard !needs.isEmpty else { return }
-
-        let highNeeds = needs.filter { $0.priority == SubcategoryPriorityLevel.high.rawValue }
-        let mediumNeeds = needs.filter { $0.priority == SubcategoryPriorityLevel.medium.rawValue }
-        let lowNeeds = needs.filter {
-            $0.priority != SubcategoryPriorityLevel.high.rawValue
-                && $0.priority != SubcategoryPriorityLevel.medium.rawValue
-        }
-
-        let onAllocate: ((UUID, Double) -> Void)? = trackAutoDistribution
-            ? { subcategoryID, allocated in
-                self.lastBankAutoDistributedBySubcategoryID[subcategoryID, default: 0] += allocated
-            }
-            : nil
-
-        allocateGroup(amount: &remainingBankAmount, needs: highNeeds, onAllocate: onAllocate)
-        allocateGroup(amount: &remainingBankAmount, needs: mediumNeeds, onAllocate: onAllocate)
-        allocateLowGroup(amount: &remainingBankAmount, needs: lowNeeds, onAllocate: onAllocate)
-
-        bankBalance = max(0, remainingBankAmount)
-    }
-
-    private func minimumDeficitNeeds() -> [NeedEntry] {
-        settings.categories.flatMap { category in
-            category.subcategories.compactMap { subcategory in
-                let minimumTarget = minimumFloorForRebalance(for: subcategory)
-                guard minimumTarget > 0 else { return nil }
-
-                let allocated = allocatedBySubcategoryID[subcategory.id, default: 0]
-                let remaining = max(0, allocated - subcategory.spentAmount)
-                let need = max(0, minimumTarget - remaining)
-                guard need > 0.0001 else { return nil }
-
-                return NeedEntry(
-                    subcategoryID: subcategory.id,
-                    priority: subcategory.priority,
-                    need: need
-                )
-            }
-        }
-    }
-
     private func applyIncomeDelta(_ deltaIncome: Double) {
-        for category in settings.categories {
-            var movedToBankForCategory: Double = 0
-            let categoryDelta = deltaIncome * (category.percentage / 100.0)
-            guard categoryDelta > 0 else {
-                lastIncomeToBankByCategoryID[category.id] = 0
-                continue
-            }
-
-            categoryTargetBaselineByID[category.id, default: 0] += categoryDelta
-            let targetCategoryAmount = max(
-                categoryTargetBaselineByID[category.id, default: 0],
-                categoryCurrentAllocated(for: category)
-            )
-
-            let unmetBefore = unmetNeeds(
-                for: category,
-                targetCategoryAmount: targetCategoryAmount,
-                stage: .basePercent
-            )
-
-            guard !unmetBefore.isEmpty else {
-                bankBalance += categoryDelta
-                movedToBankForCategory += categoryDelta
-                lastIncomeToBankByCategoryID[category.id] = roundToCents(movedToBankForCategory)
-                continue
-            }
-
-            var incomePart = categoryDelta
-            distributeAcrossStages(
-                amount: &incomePart,
-                category: category,
-                targetCategoryAmount: targetCategoryAmount
-            )
-
-            if incomePart > 0 {
-                bankBalance += incomePart
-                movedToBankForCategory += incomePart
-            }
-
-            let unmetAfterIncome = unmetNeeds(
-                for: category,
-                targetCategoryAmount: targetCategoryAmount,
-                stage: .basePercent
-            )
-            let totalNeedAfterIncome = unmetAfterIncome.reduce(0) { $0 + $1.need }
-
-            if totalNeedAfterIncome > 0, bankBalance > 0 {
-                let bankTopUpLimit = min(bankBalance, totalNeedAfterIncome)
-                var topUpRemaining = bankTopUpLimit
-                distributeAcrossStages(
-                    amount: &topUpRemaining,
-                    category: category,
-                    targetCategoryAmount: targetCategoryAmount,
-                    onAllocate: { subcategoryID, allocated in
-                        self.lastBankAutoDistributedBySubcategoryID[subcategoryID, default: 0] += allocated
-                    }
-                )
-                let bankUsed = bankTopUpLimit - topUpRemaining
-                bankBalance -= bankUsed
-            }
-
-            lastIncomeToBankByCategoryID[category.id] = roundToCents(movedToBankForCategory)
-        }
-    }
-
-    private func distributeAcrossStages(
-        amount: inout Double,
-        category: ExpenseCategory,
-        targetCategoryAmount: Double,
-        onAllocate: ((UUID, Double) -> Void)? = nil
-    ) {
-        for stage in AllocationStage.allCases {
-            guard amount > 0 else { break }
-            let stageNeeds = unmetNeeds(
-                for: category,
-                targetCategoryAmount: targetCategoryAmount,
-                stage: stage
-            )
-            distributeAmount(
-                amount: &amount,
-                across: stageNeeds,
-                onAllocate: onAllocate
-            )
-        }
-    }
-
-    private func distributeAmount(
-        amount: inout Double,
-        across needs: [NeedEntry],
-        onAllocate: ((UUID, Double) -> Void)? = nil
-    ) {
-        guard amount > 0, !needs.isEmpty else { return }
-
-        let highNeeds = needs.filter { $0.priority == SubcategoryPriorityLevel.high.rawValue }
-        let mediumNeeds = needs.filter { $0.priority == SubcategoryPriorityLevel.medium.rawValue }
-        let lowNeeds = needs.filter {
-            $0.priority != SubcategoryPriorityLevel.high.rawValue
-                && $0.priority != SubcategoryPriorityLevel.medium.rawValue
-        }
-
-        allocateGroup(amount: &amount, needs: highNeeds, onAllocate: onAllocate)
-        allocateGroup(amount: &amount, needs: mediumNeeds, onAllocate: onAllocate)
-        allocateLowGroup(amount: &amount, needs: lowNeeds, onAllocate: onAllocate)
-    }
-
-    private func allocateGroup(
-        amount: inout Double,
-        needs: [NeedEntry],
-        onAllocate: ((UUID, Double) -> Void)? = nil
-    ) {
-        guard amount > 0, !needs.isEmpty else { return }
-
-        let totalNeed = needs.reduce(0) { $0 + $1.need }
-        guard totalNeed > 0 else { return }
-
-        if totalNeed <= amount {
-            for need in needs {
-                let delta = need.need
-                allocatedBySubcategoryID[need.subcategoryID, default: 0] += delta
-                onAllocate?(need.subcategoryID, delta)
-            }
-            amount -= totalNeed
-            return
-        }
-
-        for need in needs {
-            let share = amount * (need.need / totalNeed)
-            allocatedBySubcategoryID[need.subcategoryID, default: 0] += share
-            onAllocate?(need.subcategoryID, share)
-        }
-        amount = 0
-    }
-
-    private func allocateLowGroup(
-        amount: inout Double,
-        needs: [NeedEntry],
-        onAllocate: ((UUID, Double) -> Void)? = nil
-    ) {
-        guard amount > 0, !needs.isEmpty else { return }
-
-        let totalNeed = needs.reduce(0) { $0 + $1.need }
-        guard totalNeed > 0 else { return }
-
-        if totalNeed <= amount {
-            for need in needs {
-                let delta = need.need
-                allocatedBySubcategoryID[need.subcategoryID, default: 0] += delta
-                onAllocate?(need.subcategoryID, delta)
-            }
-            amount -= totalNeed
-            return
-        }
-
-        for need in needs {
-            let share = amount * (need.need / totalNeed)
-            allocatedBySubcategoryID[need.subcategoryID, default: 0] += share
-            onAllocate?(need.subcategoryID, share)
-        }
-        amount = 0
-    }
-
-    private func unmetNeeds(
-        for category: ExpenseCategory,
-        targetCategoryAmount: Double,
-        stage: AllocationStage
-    ) -> [NeedEntry] {
-        category.subcategories.compactMap { subcategory in
-            let allocated = allocatedBySubcategoryID[subcategory.id, default: 0]
-            let remaining = max(0, allocated - subcategory.spentAmount)
-            let target = stageTarget(
-                for: subcategory,
-                targetCategoryAmount: targetCategoryAmount,
-                stage: stage
-            )
-            let need = max(0, target - remaining)
-
-            guard need > 0.0001 else { return nil }
-            return NeedEntry(subcategoryID: subcategory.id, priority: subcategory.priority, need: need)
-        }
-    }
-
-    private func stageTarget(
-        for subcategory: Subcategory,
-        targetCategoryAmount: Double,
-        stage: AllocationStage
-    ) -> Double {
-        let cap = maxCap(for: subcategory)
-
-        let minLimitTarget = min(max(0, subcategory.minLimit ?? 0), cap)
-
-        let basePercentTarget = min(
-            targetCategoryAmount * (max(0, subcategory.percentage) / 100.0),
-            cap
+        allocationEngine.applyIncomeDelta(
+            deltaIncome,
+            settings: settings,
+            categoryTargetBaselineByID: &categoryTargetBaselineByID,
+            allocatedBySubcategoryID: &allocatedBySubcategoryID,
+            bankBalance: &bankBalance,
+            lastIncomeToBankByCategoryID: &lastIncomeToBankByCategoryID,
+            lastBankAutoDistributedBySubcategoryID: &lastBankAutoDistributedBySubcategoryID
         )
-
-        switch stage {
-        case .minLimit:
-            return minLimitTarget
-        case .basePercent:
-            return max(minLimitTarget, basePercentTarget)
-        }
     }
 
     private func buildDistribution() -> BudgetDistribution {
@@ -696,6 +478,7 @@ final class BudgetViewModel: ObservableObject {
                     id: subcategory.id,
                     name: subcategory.name,
                     isSystem: subcategory.isSystem,
+                    iconName: subcategory.iconName,
                     basePercentage: subcategory.percentage,
                     fixedMinimumPercentage: subcategory.fixedMinimumPercentage,
                     minLimit: subcategory.minLimit,
@@ -788,57 +571,12 @@ final class BudgetViewModel: ObservableObject {
     }
 
     private func rebalanceForNewSubcategoryMinimum(in categoryIndex: Int, newSubcategoryID: UUID) {
-        guard settings.categories.indices.contains(categoryIndex) else { return }
-        let category = settings.categories[categoryIndex]
-        guard let newSubcategory = category.subcategories.first(where: { $0.id == newSubcategoryID }) else { return }
-
-        let targetMinimum = minimumFloorForRebalance(for: newSubcategory)
-        guard targetMinimum > 0 else { return }
-
-        let newAllocated = allocatedBySubcategoryID[newSubcategoryID, default: 0]
-        let newRemaining = max(0, newAllocated - newSubcategory.spentAmount)
-        var required = max(0, targetMinimum - newRemaining)
-        guard required > 0.0001 else { return }
-
-        let priorityOrder: [SubcategoryPriorityLevel] = [.low, .medium, .high]
-
-        for level in priorityOrder {
-            guard required > 0.0001 else { break }
-
-            let donors = category.subcategories.filter { subcategory in
-                subcategory.id != newSubcategoryID && normalizedPriority(for: subcategory.priority) == level
-            }
-            guard !donors.isEmpty else { continue }
-
-            let donorMovables: [(subcategoryID: UUID, movable: Double)] = donors.compactMap { donor in
-                let allocated = allocatedBySubcategoryID[donor.id, default: 0]
-                let floor = minimumFloorForRebalance(for: donor)
-                let minAllocated = donor.spentAmount + floor
-                let movable = max(0, allocated - minAllocated)
-                guard movable > 0.0001 else { return nil }
-                return (donor.id, movable)
-            }
-
-            let totalMovable = donorMovables.reduce(0) { $0 + $1.movable }
-            guard totalMovable > 0.0001 else { continue }
-
-            let plannedTake = min(required, totalMovable)
-            var taken: Double = 0
-
-            for entry in donorMovables {
-                let share = plannedTake * (entry.movable / totalMovable)
-                let delta = min(share, entry.movable)
-                guard delta > 0 else { continue }
-
-                allocatedBySubcategoryID[entry.subcategoryID, default: 0] -= delta
-                taken += delta
-            }
-
-            if taken > 0 {
-                allocatedBySubcategoryID[newSubcategoryID, default: 0] += taken
-                required -= taken
-            }
-        }
+        allocationEngine.rebalanceForNewSubcategoryMinimum(
+            in: categoryIndex,
+            newSubcategoryID: newSubcategoryID,
+            settings: settings,
+            allocatedBySubcategoryID: &allocatedBySubcategoryID
+        )
     }
 
     private func minimumCommitment(for subcategory: Subcategory, categoryAmount: Double) -> Double {
@@ -857,30 +595,17 @@ final class BudgetViewModel: ObservableObject {
     }
 
     private func minimumFloorForRebalance(for subcategory: Subcategory) -> Double {
-        let cap = maxCap(for: subcategory)
-        let minLimitTarget = min(max(0, subcategory.minLimit ?? 0), cap)
-        guard minLimitTarget > 0 else { return 0 }
-        return minLimitTarget
+        allocationEngine.minimumFloorForRebalance(for: subcategory)
     }
 
     private func moveExcessAboveMaxToBank(categoryType: ExpenseCategoryType, subcategoryID: UUID) {
-        guard let categoryIndex = settings.categories.firstIndex(where: { $0.type == categoryType }) else { return }
-        guard let subIndex = settings.categories[categoryIndex].subcategories.firstIndex(where: { $0.id == subcategoryID }) else { return }
-
-        let subcategory = settings.categories[categoryIndex].subcategories[subIndex]
-        guard let maxLimit = subcategory.maxLimit, maxLimit > 0 else { return }
-
-        let allocated = allocatedBySubcategoryID[subcategoryID, default: 0]
-        let remaining = max(0, allocated - subcategory.spentAmount)
-        let excess = max(0, remaining - maxLimit)
-        guard excess > 0.0001 else { return }
-
-        allocatedBySubcategoryID[subcategoryID] = allocated - excess
-        bankBalance += excess
-    }
-
-    private func normalizedPriority(for rawPriority: Int) -> SubcategoryPriorityLevel {
-        SubcategoryPriorityLevel(rawValue: rawPriority) ?? .low
+        allocationEngine.moveExcessAboveMaxToBank(
+            categoryType: categoryType,
+            subcategoryID: subcategoryID,
+            settings: settings,
+            allocatedBySubcategoryID: &allocatedBySubcategoryID,
+            bankBalance: &bankBalance
+        )
     }
 
     private func maxCap(for subcategory: Subcategory) -> Double {
@@ -928,7 +653,7 @@ final class BudgetViewModel: ObservableObject {
         allocatedBySubcategoryID = decodeUUIDMap(persistedState.allocatedBySubcategoryID)
         categoryTargetBaselineByID = decodeUUIDMap(persistedState.categoryTargetBaselineByID)
         lastIncomeToBankByCategoryID = decodeUUIDMap(persistedState.lastIncomeToBankByCategoryID)
-        lastBankAutoDistributedBySubcategoryID = decodeUUIDMap(persistedState.lastBankAutoDistributedBySubcategoryID)
+        lastBankAutoDistributedBySubcategoryID = [:]
         bankBalance = max(0, persistedState.bankBalance)
 
         syncAllocationStorageWithSettings()
@@ -947,15 +672,4 @@ final class BudgetViewModel: ObservableObject {
             partialResult[id] = pair.value
         }
     }
-}
-
-private struct NeedEntry {
-    let subcategoryID: UUID
-    let priority: Int
-    let need: Double
-}
-
-private enum AllocationStage: CaseIterable {
-    case minLimit
-    case basePercent
 }

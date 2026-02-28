@@ -25,27 +25,58 @@ struct BudgetSettings: Codable, Hashable {
             type: .essentials,
             percentage: 60,
             subcategories: [
-                Subcategory(name: "Жилье", isSystem: true, percentage: 25, minLimit: 27000, priority: 2),
-                Subcategory(name: "Питание", isSystem: true, percentage: 15, minLimit: 15000, priority: 3),
+                Subcategory(
+                    name: "Жилье",
+                    isSystem: true,
+                    iconName: "house.fill",
+                    percentage: 25,
+                    minLimit: 27000,
+                    priority: 2
+                ),
+                Subcategory(
+                    name: "Питание",
+                    isSystem: true,
+                    iconName: "fork.knife",
+                    percentage: 15,
+                    minLimit: 15000,
+                    priority: 3
+                ),
             ]
         ),
-        
-        
+
         ExpenseCategory(
             type: .wants,
             percentage: 20,
             subcategories: [
-                Subcategory(name: "Шопинг", isSystem: true, percentage: 10, priority: 2),
-                Subcategory(name: "Хобби", isSystem: true, percentage: 20, priority: 3),
-
+                Subcategory(
+                    name: "Шопинг",
+                    isSystem: true,
+                    iconName: "cart.fill",
+                    percentage: 10,
+                    priority: 2
+                ),
+                Subcategory(
+                    name: "Хобби",
+                    isSystem: true,
+                    iconName: "gamecontroller.fill",
+                    percentage: 20,
+                    priority: 3
+                ),
             ]
         ),
-        
+
         ExpenseCategory(
             type: .savings,
             percentage: 20,
             subcategories: [
-                Subcategory(name: "Подушка", isSystem: true, percentage: 25, minLimit: 600000, priority: 3),
+                Subcategory(
+                    name: "Подушка",
+                    isSystem: true,
+                    iconName: "shield.fill",
+                    percentage: 25,
+                    minLimit: 600000,
+                    priority: 3
+                ),
 
             ]
         )

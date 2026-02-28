@@ -6,8 +6,36 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		030B3485F3D9EADD9D3FFBA9 /* BudgetSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B3556A7656E084760AE49C9 /* BudgetSettings.swift */; };
+		5A5DDA83BBDEE9C11030B7A1 /* Smart_moneyTests/BudgetAllocationEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18341DAE89E1555D17C7F345 /* Smart_moneyTests/BudgetAllocationEngineTests.swift */; };
+		797B8287527E51477530AD99 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D6C56C36F70846C13E836257 /* XCTest.framework */; };
+		7C160A4D8DD400E7FB2141FB /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DE928F04FA626936D204C8C /* Foundation.framework */; };
+		8B1646BD2C951951E1BEE230 /* BudgetAllocationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F69A833A769D5551D00E9C0F /* BudgetAllocationEngine.swift */; };
+		D59408438CAE607A2E27861B /* Subcategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30426740402C6030D9761AB /* Subcategory.swift */; };
+		FF92C2D40D418C772B6AEA21 /* ExpenseCategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84F789F08C8A61DA8D593CAE /* ExpenseCategory.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		BEEE2089594BC10F8BD78AF9 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A4EA6E1A2F4122E2007853A7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A4EA6E212F4122E2007853A7;
+			remoteInfo = Smart_money;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		18341DAE89E1555D17C7F345 /* Smart_moneyTests/BudgetAllocationEngineTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Smart_moneyTests/BudgetAllocationEngineTests.swift; sourceTree = "<group>"; };
+		22F2E11C8087616801F1B8C5 /* Smart_moneyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Smart_moneyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		5DE928F04FA626936D204C8C /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		84F789F08C8A61DA8D593CAE /* ExpenseCategory.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpenseCategory.swift; path = App/Models/ExpenseCategory.swift; sourceTree = SOURCE_ROOT; };
+		8B3556A7656E084760AE49C9 /* BudgetSettings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BudgetSettings.swift; path = App/Models/BudgetSettings.swift; sourceTree = SOURCE_ROOT; };
 		A4EA6E222F4122E2007853A7 /* Smart_money.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Smart_money.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C30426740402C6030D9761AB /* Subcategory.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Subcategory.swift; path = App/Models/Subcategory.swift; sourceTree = SOURCE_ROOT; };
+		D6C56C36F70846C13E836257 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = System/Library/Frameworks/XCTest.framework; sourceTree = "<group>"; };
+		F69A833A769D5551D00E9C0F /* BudgetAllocationEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BudgetAllocationEngine.swift; path = App/Serices/BudgetAllocationEngine.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -19,6 +47,15 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		0D8380E7D39249465BB4898A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7C160A4D8DD400E7FB2141FB /* Foundation.framework in Frameworks */,
+				797B8287527E51477530AD99 /* XCTest.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A4EA6E1F2F4122E2007853A7 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -29,11 +66,42 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		48301F3AF674BD27736547B8 /* Smart_moneyTests */ = {
+			isa = PBXGroup;
+			children = (
+				18341DAE89E1555D17C7F345 /* Smart_moneyTests/BudgetAllocationEngineTests.swift */,
+				8B3556A7656E084760AE49C9 /* BudgetSettings.swift */,
+				84F789F08C8A61DA8D593CAE /* ExpenseCategory.swift */,
+				C30426740402C6030D9761AB /* Subcategory.swift */,
+				F69A833A769D5551D00E9C0F /* BudgetAllocationEngine.swift */,
+			);
+			name = Smart_moneyTests;
+			sourceTree = "<group>";
+		};
+		76D4EDBD1CCD23ABE17A5E5C /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				9220388CF7A584A483CDA27E /* iOS */,
+				D6C56C36F70846C13E836257 /* XCTest.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		9220388CF7A584A483CDA27E /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				5DE928F04FA626936D204C8C /* Foundation.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
 		A4EA6E192F4122E2007853A7 = {
 			isa = PBXGroup;
 			children = (
 				A4EA6E242F4122E2007853A7 /* App */,
 				A4EA6E232F4122E2007853A7 /* Products */,
+				76D4EDBD1CCD23ABE17A5E5C /* Frameworks */,
+				48301F3AF674BD27736547B8 /* Smart_moneyTests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -41,6 +109,7 @@
 			isa = PBXGroup;
 			children = (
 				A4EA6E222F4122E2007853A7 /* Smart_money.app */,
+				22F2E11C8087616801F1B8C5 /* Smart_moneyTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,6 +117,24 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		11CE3A807578D4F7F2F60A9B /* Smart_moneyTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 54F0BB10867093D2319B2B90 /* Build configuration list for PBXNativeTarget "Smart_moneyTests" */;
+			buildPhases = (
+				8778C400BA1CB228E4B03B14 /* Sources */,
+				0D8380E7D39249465BB4898A /* Frameworks */,
+				D91711C41B02A46C907C58EF /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				56A0D852490F73C6B489A97E /* PBXTargetDependency */,
+			);
+			name = Smart_moneyTests;
+			productName = Smart_moneyTests;
+			productReference = 22F2E11C8087616801F1B8C5 /* Smart_moneyTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		A4EA6E212F4122E2007853A7 /* Smart_money */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A4EA6E2D2F4122E4007853A7 /* Build configuration list for PBXNativeTarget "Smart_money" */;
@@ -64,8 +151,6 @@
 				A4EA6E242F4122E2007853A7 /* App */,
 			);
 			name = Smart_money;
-			packageProductDependencies = (
-			);
 			productName = Smart_money;
 			productReference = A4EA6E222F4122E2007853A7 /* Smart_money.app */;
 			productType = "com.apple.product-type.application";
@@ -100,6 +185,7 @@
 			projectRoot = "";
 			targets = (
 				A4EA6E212F4122E2007853A7 /* Smart_money */,
+				11CE3A807578D4F7F2F60A9B /* Smart_moneyTests */,
 			);
 		};
 /* End PBXProject section */
@@ -112,9 +198,28 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D91711C41B02A46C907C58EF /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		8778C400BA1CB228E4B03B14 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5A5DDA83BBDEE9C11030B7A1 /* Smart_moneyTests/BudgetAllocationEngineTests.swift in Sources */,
+				030B3485F3D9EADD9D3FFBA9 /* BudgetSettings.swift in Sources */,
+				FF92C2D40D418C772B6AEA21 /* ExpenseCategory.swift in Sources */,
+				D59408438CAE607A2E27861B /* Subcategory.swift in Sources */,
+				8B1646BD2C951951E1BEE230 /* BudgetAllocationEngine.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A4EA6E1E2F4122E2007853A7 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -124,7 +229,31 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		56A0D852490F73C6B489A97E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = Smart_money;
+			target = A4EA6E212F4122E2007853A7 /* Smart_money */;
+			targetProxy = BEEE2089594BC10F8BD78AF9 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		026A28FFAD5A0557C1D1A8B4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleExecutable = "$(EXECUTABLE_NAME)";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				PRODUCT_BUNDLE_IDENTIFIER = "Fibik.Smart-moneyTests";
+				PRODUCT_MODULE_NAME = Smart_moneyTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
 		A4EA6E2B2F4122E4007853A7 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -184,6 +313,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -241,6 +371,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -310,9 +441,34 @@
 			};
 			name = Release;
 		};
+		AC1A60EAAD689DA949CE049E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleExecutable = "$(EXECUTABLE_NAME)";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				PRODUCT_BUNDLE_IDENTIFIER = "Fibik.Smart-moneyTests";
+				PRODUCT_MODULE_NAME = Smart_moneyTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		54F0BB10867093D2319B2B90 /* Build configuration list for PBXNativeTarget "Smart_moneyTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AC1A60EAAD689DA949CE049E /* Release */,
+				026A28FFAD5A0557C1D1A8B4 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		A4EA6E1D2F4122E2007853A7 /* Build configuration list for PBXProject "Smart_money" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

@@ -49,12 +49,12 @@ struct CategoryExpandedContentView: View {
                 Button(action: onAddTap) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 10)
-                            .fill(canAddSubcategory ? Color(.systemBackground) : Color(.systemGray5))
+                            .fill(canAddSubcategory ? AppTheme.cardBackground : AppTheme.disabledCardBackground)
                         Image(systemName: "plus")
                             .font(.title2.weight(.semibold))
                             .foregroundStyle(.secondary)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 78)
+                    .frame(maxWidth: .infinity, minHeight: 96, maxHeight: 96)
                 }
                 .buttonStyle(.plain)
                 .disabled(!canAddSubcategory)
