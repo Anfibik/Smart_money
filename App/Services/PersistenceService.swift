@@ -17,7 +17,7 @@ final class PersistenceService {
 
     init(
         defaults: UserDefaults = .standard,
-        storageKey: String = "budget_state_v1"
+        storageKey: String = "budget_state_v2"
     ) {
         self.defaults = defaults
         self.storageKey = storageKey

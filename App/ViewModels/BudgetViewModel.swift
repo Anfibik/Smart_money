@@ -380,6 +380,42 @@ final class BudgetViewModel: ObservableObject {
         recalculate()
     }
 
+    func applyStartOnboardingConfiguration(_ configuration: StartOnboardingConfiguration) {
+        settings = configuration.settings
+        income = 0
+        lastIncomeAmount = max(0, configuration.input.monthlyIncome)
+        bankBalance = 0
+
+        allocatedBySubcategoryID = [:]
+        categoryTargetBaselineByID = [:]
+        lastIncomeToBankByCategoryID = [:]
+        lastBankAutoDistributedBySubcategoryID = [:]
+
+        syncAllocationStorageWithSettings()
+        syncTargetBaselineStorageWithSettings()
+        syncLastIncomeToBankStorageWithSettings()
+        syncLastBankAutoDistributionStorageWithSettings()
+
+        if configuration.input.monthlyIncome > 0 {
+            income = configuration.input.monthlyIncome
+            applyIncomeDelta(configuration.input.monthlyIncome)
+        }
+
+        let startingFreeCapital = configuration.input.positiveCapital
+        if startingFreeCapital > 0 {
+            bankBalance += startingFreeCapital
+            allocationEngine.resolveMinimumDeficitsFromBank(
+                settings: settings,
+                allocatedBySubcategoryID: &allocatedBySubcategoryID,
+                bankBalance: &bankBalance,
+                lastBankAutoDistributedBySubcategoryID: &lastBankAutoDistributedBySubcategoryID,
+                trackAutoDistribution: true
+            )
+        }
+
+        recalculate()
+    }
+
     func deleteSubcategory(categoryType: ExpenseCategoryType, subcategoryID: UUID) {
         guard let categoryIndex = settings.categories.firstIndex(where: { $0.type == categoryType }) else { return }
         guard let subIndex = settings.categories[categoryIndex].subcategories.firstIndex(where: { $0.id == subcategoryID }) else { return }

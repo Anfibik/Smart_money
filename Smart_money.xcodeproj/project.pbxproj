@@ -35,7 +35,7 @@
 		A4EA6E222F4122E2007853A7 /* Smart_money.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Smart_money.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C30426740402C6030D9761AB /* Subcategory.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Subcategory.swift; path = App/Models/Subcategory.swift; sourceTree = SOURCE_ROOT; };
 		D6C56C36F70846C13E836257 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = System/Library/Frameworks/XCTest.framework; sourceTree = "<group>"; };
-		F69A833A769D5551D00E9C0F /* BudgetAllocationEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BudgetAllocationEngine.swift; path = App/Serices/BudgetAllocationEngine.swift; sourceTree = SOURCE_ROOT; };
+		F69A833A769D5551D00E9C0F /* BudgetAllocationEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BudgetAllocationEngine.swift; path = App/Services/BudgetAllocationEngine.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */

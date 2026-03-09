@@ -8,8 +8,7 @@ struct ContentView: View {
     @State private var didBootstrapInitialSetup = false
     @State private var isShowingResetSetupAlert = false
     @State private var isSideMenuOpen = false
-    @AppStorage("has_completed_system_setup") private var hasCompletedSystemSetup = false
-    @AppStorage("system_setup_payload") private var systemSetupPayload = ""
+    @AppStorage("has_completed_start_onboarding_v2") private var hasCompletedStartOnboarding = false
     @FocusState private var isIncomeFieldFocused: Bool
 
     var body: some View {
@@ -120,12 +119,9 @@ struct ContentView: View {
             }
         }
         .fullScreenCover(isPresented: $isShowingInitialSetup) {
-            InitialSystemSetupView(
-                cards: initialSystemSetupCards
-            ) { setups in
-                budgetViewModel.applySystemSubcategorySetup(setups)
-                saveSystemSetupPayload(setups)
-                hasCompletedSystemSetup = true
+            StartOnboardingFlowView { configuration in
+                budgetViewModel.applyStartOnboardingConfiguration(configuration)
+                hasCompletedStartOnboarding = true
                 isShowingInitialSetup = false
             }
             .interactiveDismissDisabled(true)
@@ -192,22 +188,6 @@ struct ContentView: View {
         []
     }
 
-    private var initialSystemSetupCards: [InitialSystemSetupCard] {
-        budgetViewModel.settings.categories.flatMap { category in
-            category.subcategories
-                .filter(\.isSystem)
-                .map { subcategory in
-                    InitialSystemSetupCard(
-                        categoryType: category.type,
-                        name: subcategory.name,
-                        defaultPercentage: subcategory.percentage,
-                        defaultMinLimit: subcategory.minLimit,
-                        defaultMaxLimit: subcategory.maxLimit
-                    )
-                }
-        }
-    }
-
     private func handleLeftIncomeButtonTap() {
         if isIncomeInputVisible {
             collapseIncomeInput()
@@ -270,30 +250,16 @@ struct ContentView: View {
         guard !didBootstrapInitialSetup else { return }
         didBootstrapInitialSetup = true
 
-        if hasCompletedSystemSetup {
-            if let data = systemSetupPayload.data(using: .utf8),
-               let setups = try? JSONDecoder().decode([SystemSubcategorySetup].self, from: data),
-               !setups.isEmpty {
-                budgetViewModel.applySystemSubcategorySetup(setups)
-            }
+        if hasCompletedStartOnboarding {
             return
         }
 
         isShowingInitialSetup = true
     }
 
-    private func saveSystemSetupPayload(_ setups: [SystemSubcategorySetup]) {
-        guard let data = try? JSONEncoder().encode(setups),
-              let payload = String(data: data, encoding: .utf8) else {
-            return
-        }
-        systemSetupPayload = payload
-    }
-
     private func resetInitialSetup() {
         budgetViewModel.resetToInitialSystemState()
-        hasCompletedSystemSetup = false
-        systemSetupPayload = ""
+        hasCompletedStartOnboarding = false
         isShowingInitialSetup = true
     }
 }

@@ -2,14 +2,14 @@ import Foundation
 
 enum ExpenseCategoryType: String, Codable, CaseIterable, Hashable {
     case essentials
-    case savings
     case wants
+    case savings
 
     var title: String {
         switch self {
         case .essentials: return "Основные"
-        case .savings: return "Накопления"
         case .wants: return "Желаемые"
+        case .savings: return "Накопления"
         }
     }
 
@@ -17,8 +17,8 @@ enum ExpenseCategoryType: String, Codable, CaseIterable, Hashable {
     var defaultPercentage: Double {
         switch self {
         case .essentials: return 60
-        case .savings: return 20
-        case .wants: return 20
+        case .wants: return 15
+        case .savings: return 25
         }
     }
 }

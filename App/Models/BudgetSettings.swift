@@ -29,16 +29,24 @@ struct BudgetSettings: Codable, Hashable {
                     name: "Жилье",
                     isSystem: true,
                     iconName: "house.fill",
-                    percentage: 25,
-                    minLimit: 27000,
-                    priority: 2
+                    percentage: 30,
+                    minLimit: 0,
+                    priority: 3
                 ),
                 Subcategory(
                     name: "Питание",
                     isSystem: true,
                     iconName: "fork.knife",
-                    percentage: 15,
-                    minLimit: 15000,
+                    percentage: 10,
+                    minLimit: 0,
+                    priority: 3
+                ),
+                Subcategory(
+                    name: "Здоровье",
+                    isSystem: true,
+                    iconName: "cross.case.fill",
+                    percentage: 5,
+                    minLimit: 0,
                     priority: 3
                 ),
             ]
@@ -46,36 +54,46 @@ struct BudgetSettings: Codable, Hashable {
 
         ExpenseCategory(
             type: .wants,
-            percentage: 20,
+            percentage: 15,
             subcategories: [
                 Subcategory(
                     name: "Шопинг",
                     isSystem: true,
                     iconName: "cart.fill",
-                    percentage: 10,
-                    priority: 2
+                    percentage: 5,
+                    minLimit: 0,
+                    priority: 1
                 ),
                 Subcategory(
                     name: "Хобби",
                     isSystem: true,
                     iconName: "gamecontroller.fill",
-                    percentage: 20,
-                    priority: 3
+                    percentage: 10,
+                    minLimit: 0,
+                    priority: 1
+                ),
+                Subcategory(
+                    name: "Развлечения",
+                    isSystem: true,
+                    iconName: "sparkles",
+                    percentage: 10,
+                    minLimit: 0,
+                    priority: 1
                 ),
             ]
         ),
 
         ExpenseCategory(
             type: .savings,
-            percentage: 20,
+            percentage: 25,
             subcategories: [
                 Subcategory(
                     name: "Подушка",
                     isSystem: true,
                     iconName: "shield.fill",
                     percentage: 25,
-                    minLimit: 600000,
-                    priority: 3
+                    minLimit: 0,
+                    priority: 2
                 ),
 
             ]

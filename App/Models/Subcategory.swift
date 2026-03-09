@@ -104,9 +104,12 @@ enum SubcategoryIconCatalog {
         "gamecontroller.fill",
         "shield.fill",
         "car.fill",
-        "tram.fill",
-        "cross.case.fill",
         "figure.2.and.child.holdinghands",
+        "cross.case.fill",
+        "creditcard.fill",
+        "banknote.fill",
+        "sparkles",
+        "tram.fill",
         "dumbbell.fill",
         "wifi",
         "phone.fill",
@@ -139,12 +142,24 @@ enum SubcategoryIconCatalog {
             return "house.fill"
         case "питание":
             return "fork.knife"
+        case "здоровье":
+            return "cross.case.fill"
+        case "дети":
+            return "figure.2.and.child.holdinghands"
+        case "транспорт":
+            return "car.fill"
         case "шопинг":
             return "cart.fill"
         case "хобби":
             return "gamecontroller.fill"
+        case "развлечения":
+            return "sparkles"
         case "подушка":
             return "shield.fill"
+        case "кредит":
+            return "creditcard.fill"
+        case "долг":
+            return "banknote.fill"
 
         default:
             return fallbackSymbol
