@@ -23,6 +23,7 @@ final class BudgetViewModel: ObservableObject {
     @Published private(set) var lastIncomeAmount: Double = 0
     @Published private(set) var settings: BudgetSettings
     @Published private(set) var distribution: BudgetDistribution
+    @Published private(set) var historyEvents: [BudgetHistoryEvent]
 
     private var allocatedBySubcategoryID: [UUID: Double] = [:]
     private var categoryTargetBaselineByID: [UUID: Double] = [:]
@@ -31,17 +32,21 @@ final class BudgetViewModel: ObservableObject {
     private var bankBalance: Double = 0
     private let persistenceService: PersistenceService
     private let allocationEngine: BudgetAllocationEngine
+    private let historyStorage: BudgetHistoryStorage
 
     init(
         income: Double,
         settings: BudgetSettings,
         persistenceService: PersistenceService,
-        allocationEngine: BudgetAllocationEngine
+        allocationEngine: BudgetAllocationEngine,
+        historyStorage: BudgetHistoryStorage
     ) {
         self.persistenceService = persistenceService
         self.allocationEngine = allocationEngine
+        self.historyStorage = historyStorage
         self.income = 0
         self.settings = settings
+        self.historyEvents = historyStorage.loadEvents().sorted { $0.createdAt > $1.createdAt }
         self.distribution = BudgetDistribution(
             income: 0,
             categoryAllocations: [],
@@ -73,7 +78,8 @@ final class BudgetViewModel: ObservableObject {
             income: income,
             settings: settings,
             persistenceService: PersistenceService(),
-            allocationEngine: BudgetAllocationEngine()
+            allocationEngine: BudgetAllocationEngine(),
+            historyStorage: BudgetHistoryStorage()
         )
     }
 
@@ -119,6 +125,13 @@ final class BudgetViewModel: ObservableObject {
         syncLastIncomeToBankStorageWithSettings()
         syncLastBankAutoDistributionStorageWithSettings()
         applyIncomeDelta(normalized)
+        appendHistoryEvent(
+            BudgetHistoryEvent(
+                type: .income,
+                amount: normalized,
+                currencyCode: settings.currencyCode
+            )
+        )
         recalculate()
     }
 
@@ -143,6 +156,7 @@ final class BudgetViewModel: ObservableObject {
         syncLastIncomeToBankStorageWithSettings()
         syncLastBankAutoDistributionStorageWithSettings()
 
+        clearHistory()
         persistenceService.clearBudgetState()
         recalculate()
     }
@@ -183,7 +197,20 @@ final class BudgetViewModel: ObservableObject {
             bankBalance -= shortage
         }
 
+        let subcategory = settings.categories[categoryIndex].subcategories[subcategoryIndex]
         settings.categories[categoryIndex].subcategories[subcategoryIndex].spentAmount += normalizedAmount
+        appendHistoryEvent(
+            BudgetHistoryEvent(
+                type: .expense,
+                amount: normalizedAmount,
+                currencyCode: settings.currencyCode,
+                categoryType: categoryType,
+                categoryTitleSnapshot: categoryType.title,
+                subcategoryID: subcategory.id,
+                subcategoryNameSnapshot: subcategory.name,
+                iconNameSnapshot: subcategory.iconName
+            )
+        )
         recalculate()
     }
 
@@ -209,6 +236,18 @@ final class BudgetViewModel: ObservableObject {
 
         allocatedBySubcategoryID[subcategoryID] = max(0, allocated - normalizedAmount)
         bankBalance += normalizedAmount
+        appendHistoryEvent(
+            BudgetHistoryEvent(
+                type: .transferToFreeCapital,
+                amount: normalizedAmount,
+                currencyCode: settings.currencyCode,
+                categoryType: categoryType,
+                categoryTitleSnapshot: categoryType.title,
+                subcategoryID: subcategory.id,
+                subcategoryNameSnapshot: subcategory.name,
+                iconNameSnapshot: subcategory.iconName
+            )
+        )
         recalculate()
     }
 
@@ -240,6 +279,18 @@ final class BudgetViewModel: ObservableObject {
 
         bankBalance -= normalizedAmount
         allocatedBySubcategoryID[subcategoryID, default: 0] += normalizedAmount
+        appendHistoryEvent(
+            BudgetHistoryEvent(
+                type: .transferFromFreeCapital,
+                amount: normalizedAmount,
+                currencyCode: settings.currencyCode,
+                categoryType: categoryType,
+                categoryTitleSnapshot: categoryType.title,
+                subcategoryID: subcategory.id,
+                subcategoryNameSnapshot: subcategory.name,
+                iconNameSnapshot: subcategory.iconName
+            )
+        )
         recalculate()
     }
 
@@ -707,5 +758,15 @@ final class BudgetViewModel: ObservableObject {
             guard let id = UUID(uuidString: pair.key) else { return }
             partialResult[id] = pair.value
         }
+    }
+
+    private func appendHistoryEvent(_ event: BudgetHistoryEvent) {
+        historyEvents.insert(event, at: 0)
+        historyStorage.append(event)
+    }
+
+    private func clearHistory() {
+        historyEvents = []
+        historyStorage.clear()
     }
 }

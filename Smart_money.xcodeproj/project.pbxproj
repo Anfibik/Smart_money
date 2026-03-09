@@ -8,6 +8,12 @@
 
 /* Begin PBXBuildFile section */
 		030B3485F3D9EADD9D3FFBA9 /* BudgetSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B3556A7656E084760AE49C9 /* BudgetSettings.swift */; };
+		05B1C5DE8C7A4B7DA2A65B01 /* BudgetStatisticsSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05B1C5DE8C7A4B7DA2A65A01 /* BudgetStatisticsSummary.swift */; };
+		05B1C5DE8C7A4B7DA2A65B02 /* BudgetStatisticsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05B1C5DE8C7A4B7DA2A65A02 /* BudgetStatisticsService.swift */; };
+		05B1C5DE8C7A4B7DA2A65B03 /* BudgetHistoryEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05B1C5DE8C7A4B7DA2A65A03 /* BudgetHistoryEvent.swift */; };
+		05B1C5DE8C7A4B7DA2A65B04 /* BudgetHistoryStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05B1C5DE8C7A4B7DA2A65A04 /* BudgetHistoryStorage.swift */; };
+		05B1C5DE8C7A4B7DA2A65B05 /* Smart_moneyTests/BudgetStatisticsServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05B1C5DE8C7A4B7DA2A65A05 /* Smart_moneyTests/BudgetStatisticsServiceTests.swift */; };
+		05B1C5DE8C7A4B7DA2A65B06 /* Smart_moneyTests/BudgetHistoryStorageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05B1C5DE8C7A4B7DA2A65A06 /* Smart_moneyTests/BudgetHistoryStorageTests.swift */; };
 		5A5DDA83BBDEE9C11030B7A1 /* Smart_moneyTests/BudgetAllocationEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18341DAE89E1555D17C7F345 /* Smart_moneyTests/BudgetAllocationEngineTests.swift */; };
 		797B8287527E51477530AD99 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D6C56C36F70846C13E836257 /* XCTest.framework */; };
 		7C160A4D8DD400E7FB2141FB /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DE928F04FA626936D204C8C /* Foundation.framework */; };
@@ -27,6 +33,12 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		05B1C5DE8C7A4B7DA2A65A01 /* BudgetStatisticsSummary.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BudgetStatisticsSummary.swift; path = App/Models/BudgetStatisticsSummary.swift; sourceTree = SOURCE_ROOT; };
+		05B1C5DE8C7A4B7DA2A65A02 /* BudgetStatisticsService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BudgetStatisticsService.swift; path = App/Services/BudgetStatisticsService.swift; sourceTree = SOURCE_ROOT; };
+		05B1C5DE8C7A4B7DA2A65A03 /* BudgetHistoryEvent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BudgetHistoryEvent.swift; path = App/Models/BudgetHistoryEvent.swift; sourceTree = SOURCE_ROOT; };
+		05B1C5DE8C7A4B7DA2A65A04 /* BudgetHistoryStorage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BudgetHistoryStorage.swift; path = App/Services/BudgetHistoryStorage.swift; sourceTree = SOURCE_ROOT; };
+		05B1C5DE8C7A4B7DA2A65A05 /* Smart_moneyTests/BudgetStatisticsServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Smart_moneyTests/BudgetStatisticsServiceTests.swift; sourceTree = "<group>"; };
+		05B1C5DE8C7A4B7DA2A65A06 /* Smart_moneyTests/BudgetHistoryStorageTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Smart_moneyTests/BudgetHistoryStorageTests.swift; sourceTree = "<group>"; };
 		18341DAE89E1555D17C7F345 /* Smart_moneyTests/BudgetAllocationEngineTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Smart_moneyTests/BudgetAllocationEngineTests.swift; sourceTree = "<group>"; };
 		22F2E11C8087616801F1B8C5 /* Smart_moneyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Smart_moneyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		5DE928F04FA626936D204C8C /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
@@ -70,8 +82,14 @@
 			isa = PBXGroup;
 			children = (
 				18341DAE89E1555D17C7F345 /* Smart_moneyTests/BudgetAllocationEngineTests.swift */,
+				05B1C5DE8C7A4B7DA2A65A05 /* Smart_moneyTests/BudgetStatisticsServiceTests.swift */,
+				05B1C5DE8C7A4B7DA2A65A06 /* Smart_moneyTests/BudgetHistoryStorageTests.swift */,
 				8B3556A7656E084760AE49C9 /* BudgetSettings.swift */,
+				05B1C5DE8C7A4B7DA2A65A03 /* BudgetHistoryEvent.swift */,
+				05B1C5DE8C7A4B7DA2A65A01 /* BudgetStatisticsSummary.swift */,
 				84F789F08C8A61DA8D593CAE /* ExpenseCategory.swift */,
+				05B1C5DE8C7A4B7DA2A65A04 /* BudgetHistoryStorage.swift */,
+				05B1C5DE8C7A4B7DA2A65A02 /* BudgetStatisticsService.swift */,
 				C30426740402C6030D9761AB /* Subcategory.swift */,
 				F69A833A769D5551D00E9C0F /* BudgetAllocationEngine.swift */,
 			);
@@ -212,9 +230,15 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				05B1C5DE8C7A4B7DA2A65B05 /* Smart_moneyTests/BudgetStatisticsServiceTests.swift in Sources */,
+				05B1C5DE8C7A4B7DA2A65B06 /* Smart_moneyTests/BudgetHistoryStorageTests.swift in Sources */,
 				5A5DDA83BBDEE9C11030B7A1 /* Smart_moneyTests/BudgetAllocationEngineTests.swift in Sources */,
 				030B3485F3D9EADD9D3FFBA9 /* BudgetSettings.swift in Sources */,
+				05B1C5DE8C7A4B7DA2A65B03 /* BudgetHistoryEvent.swift in Sources */,
+				05B1C5DE8C7A4B7DA2A65B01 /* BudgetStatisticsSummary.swift in Sources */,
 				FF92C2D40D418C772B6AEA21 /* ExpenseCategory.swift in Sources */,
+				05B1C5DE8C7A4B7DA2A65B04 /* BudgetHistoryStorage.swift in Sources */,
+				05B1C5DE8C7A4B7DA2A65B02 /* BudgetStatisticsService.swift in Sources */,
 				D59408438CAE607A2E27861B /* Subcategory.swift in Sources */,
 				8B1646BD2C951951E1BEE230 /* BudgetAllocationEngine.swift in Sources */,
 			);

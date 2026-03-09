@@ -70,9 +70,9 @@ struct StartOnboardingFlowView: View {
         VStack(alignment: .leading, spacing: 14) {
             fieldCard {
                 inputField(
-                    title: "Средний месячный доход за 12 месяцев*",
+                    title: "Средний месячный доход за год",
                     text: $monthlyIncomeInput,
-                    prompt: "Например, 120000"
+                    prompt: "Например, 120 000"
                 )
 
                 inputField(
@@ -121,7 +121,7 @@ struct StartOnboardingFlowView: View {
                     inputField(
                         title: "Ежемесячный платеж по кредиту*",
                         text: $creditPaymentInput,
-                        prompt: "Например, 15000"
+                        prompt: "Например, 15 000"
                     )
                 }
             }

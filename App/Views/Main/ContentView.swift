@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var didBootstrapInitialSetup = false
     @State private var isShowingResetSetupAlert = false
     @State private var isSideMenuOpen = false
+    @State private var isShowingHistoryAndStatistics = false
     @AppStorage("has_completed_start_onboarding_v2") private var hasCompletedStartOnboarding = false
     @FocusState private var isIncomeFieldFocused: Bool
 
@@ -117,6 +118,9 @@ struct ContentView: View {
                     }
                 }
             }
+            .navigationDestination(isPresented: $isShowingHistoryAndStatistics) {
+                HistoryAndStatisticsView(budgetViewModel: budgetViewModel)
+            }
         }
         .fullScreenCover(isPresented: $isShowingInitialSetup) {
             StartOnboardingFlowView { configuration in
@@ -185,7 +189,13 @@ struct ContentView: View {
     }
 
     private var sideMenuItems: [SideMenuItemDescriptor] {
-        []
+        [
+            SideMenuItemDescriptor(
+                id: "historyAndStatistics",
+                title: "История и статистика",
+                systemImage: "chart.bar.xaxis"
+            )
+        ]
     }
 
     private func handleLeftIncomeButtonTap() {
@@ -242,8 +252,9 @@ struct ContentView: View {
 
     private func handleSideMenuSelection(_ item: SideMenuItemDescriptor) {
         closeSideMenu()
-        // Placeholder for next menu actions (e.g. Settings).
-        _ = item
+        if item.id == "historyAndStatistics" {
+            isShowingHistoryAndStatistics = true
+        }
     }
 
     private func bootstrapInitialSetupIfNeeded() {
