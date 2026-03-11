@@ -8,7 +8,7 @@ struct BankSummaryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("Банка")
+                Text("Свободный капитал")
                     .font(.headline)
 
                 Spacer()

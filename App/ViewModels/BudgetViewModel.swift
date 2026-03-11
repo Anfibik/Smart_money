@@ -17,6 +17,29 @@ enum SubcategoryPriorityLevel: Int, CaseIterable, Identifiable {
     }
 }
 
+struct CategoryCoverageCandidate: Identifiable, Hashable {
+    let subcategoryID: UUID
+    let name: String
+    let iconName: String
+    let availableAmount: Double
+
+    var id: UUID { subcategoryID }
+}
+
+struct CategoryCoverageRequirement: Identifiable, Hashable {
+    let id = UUID()
+    let categoryType: ExpenseCategoryType
+    let shortageAmount: Double
+    let totalAvailableAmount: Double
+    let automaticCategoryAmount: Double
+    let bankContributionAmount: Double
+    let candidates: [CategoryCoverageCandidate]
+
+    var canCover: Bool {
+        totalAvailableAmount + 0.0001 >= shortageAmount
+    }
+}
+
 @MainActor
 final class BudgetViewModel: ObservableObject {
     @Published private(set) var income: Double
@@ -181,37 +204,85 @@ final class BudgetViewModel: ObservableObject {
         amount: Double,
         useBankIfNeeded: Bool
     ) {
-        let normalizedAmount = max(0, amount)
-        guard normalizedAmount > 0 else { return }
-
-        guard let categoryIndex = settings.categories.firstIndex(where: { $0.type == categoryType }) else { return }
-        guard let subcategoryIndex = settings.categories[categoryIndex].subcategories.firstIndex(where: { $0.id == subcategoryID }) else { return }
-
-        let currentAllocated = allocatedBySubcategoryID[subcategoryID, default: 0]
-        let currentSpent = settings.categories[categoryIndex].subcategories[subcategoryIndex].spentAmount
-        let currentRemaining = max(0, currentAllocated - currentSpent)
-
-        if normalizedAmount > currentRemaining + 0.0001 {
-            let shortage = normalizedAmount - currentRemaining
-            guard useBankIfNeeded, shortage <= bankAvailableAmount + 0.0001 else { return }
-            bankBalance -= shortage
-        }
-
-        let subcategory = settings.categories[categoryIndex].subcategories[subcategoryIndex]
-        settings.categories[categoryIndex].subcategories[subcategoryIndex].spentAmount += normalizedAmount
-        appendHistoryEvent(
-            BudgetHistoryEvent(
-                type: .expense,
-                amount: normalizedAmount,
-                currencyCode: settings.currencyCode,
-                categoryType: categoryType,
-                categoryTitleSnapshot: categoryType.title,
-                subcategoryID: subcategory.id,
-                subcategoryNameSnapshot: subcategory.name,
-                iconNameSnapshot: subcategory.iconName
-            )
+        _ = useBankIfNeeded
+        _ = performExpense(
+            categoryType: categoryType,
+            subcategoryID: subcategoryID,
+            amount: amount,
+            forcedAllocations: nil,
+            useAutomaticForcedCoverage: false
         )
-        recalculate()
+    }
+
+    func expenseCoverageRequirement(
+        categoryType: ExpenseCategoryType,
+        subcategoryID: UUID,
+        amount: Double
+    ) -> CategoryCoverageRequirement? {
+        let normalizedAmount = max(0, amount)
+        guard normalizedAmount > 0 else { return nil }
+        guard let categoryIndex = settings.categories.firstIndex(where: { $0.type == categoryType }) else { return nil }
+        guard let subcategoryIndex = settings.categories[categoryIndex].subcategories.firstIndex(where: { $0.id == subcategoryID }) else { return nil }
+
+        let category = settings.categories[categoryIndex]
+        let target = category.subcategories[subcategoryIndex]
+        let targetRemaining = availableBalance(for: target)
+        let automaticCategoryAmount = automaticCategoryCoverageAmount(
+            in: category,
+            excluding: subcategoryID
+        )
+        let bankContribution = min(
+            bankAvailableAmount,
+            max(0, normalizedAmount - targetRemaining - automaticCategoryAmount)
+        )
+        let shortage = max(0, normalizedAmount - targetRemaining - automaticCategoryAmount - bankContribution)
+
+        guard shortage > 0.0001 else { return nil }
+
+        let candidates = forcedCoverageCandidates(
+            in: category,
+            excluding: subcategoryID
+        )
+
+        return CategoryCoverageRequirement(
+            categoryType: categoryType,
+            shortageAmount: roundToCents(shortage),
+            totalAvailableAmount: roundToCents(candidates.reduce(0) { $0 + $1.availableAmount }),
+            automaticCategoryAmount: roundToCents(automaticCategoryAmount),
+            bankContributionAmount: roundToCents(bankContribution),
+            candidates: candidates
+        )
+    }
+
+    @discardableResult
+    func addExpenseWithAutomaticForcedCoverage(
+        categoryType: ExpenseCategoryType,
+        subcategoryID: UUID,
+        amount: Double
+    ) -> Bool {
+        performExpense(
+            categoryType: categoryType,
+            subcategoryID: subcategoryID,
+            amount: amount,
+            forcedAllocations: nil,
+            useAutomaticForcedCoverage: true
+        )
+    }
+
+    @discardableResult
+    func addExpenseWithManualForcedCoverage(
+        categoryType: ExpenseCategoryType,
+        subcategoryID: UUID,
+        amount: Double,
+        allocations: [UUID: Double]
+    ) -> Bool {
+        performExpense(
+            categoryType: categoryType,
+            subcategoryID: subcategoryID,
+            amount: amount,
+            forcedAllocations: allocations,
+            useAutomaticForcedCoverage: false
+        )
     }
 
     func transferFromSubcategoryToBank(
@@ -236,6 +307,7 @@ final class BudgetViewModel: ObservableObject {
 
         allocatedBySubcategoryID[subcategoryID] = max(0, allocated - normalizedAmount)
         bankBalance += normalizedAmount
+        topUpEmergencyReserveFromFreeCapital()
         appendHistoryEvent(
             BudgetHistoryEvent(
                 type: .transferToFreeCapital,
@@ -303,41 +375,100 @@ final class BudgetViewModel: ObservableObject {
         maxLimit: Double,
         priority: SubcategoryPriorityLevel
     ) {
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedPercentage = max(0, percentage)
-        guard !trimmedName.isEmpty, normalizedPercentage > 0 else { return }
+        _ = performAddCustomSubcategory(
+            categoryType: categoryType,
+            name: name,
+            iconName: iconName,
+            percentage: percentage,
+            minLimit: minLimit,
+            maxLimit: maxLimit,
+            priority: priority,
+            forcedAllocations: nil,
+            useAutomaticForcedCoverage: false
+        )
+    }
 
-        guard let categoryIndex = settings.categories.firstIndex(where: { $0.type == categoryType }) else { return }
+    func newSubcategoryCoverageRequirement(
+        categoryType: ExpenseCategoryType,
+        minLimit: Double
+    ) -> CategoryCoverageRequirement? {
+        let normalizedMinLimit = max(0, minLimit)
+        guard normalizedMinLimit > 0 else { return nil }
+        guard let categoryIndex = settings.categories.firstIndex(where: { $0.type == categoryType }) else { return nil }
 
-        let currentTotal = settings.categories[categoryIndex].subcategories.reduce(0) { $0 + $1.percentage }
-        let freePercent = max(0, 100 - currentTotal)
-        guard normalizedPercentage <= freePercent + 0.0001 else { return }
+        let category = settings.categories[categoryIndex]
+        let automaticCategoryAmount = automaticCategoryCoverageAmount(
+            in: category,
+            excluding: nil
+        )
+        let bankContribution = min(
+            bankAvailableAmount,
+            max(0, normalizedMinLimit - automaticCategoryAmount)
+        )
+        let shortage = max(0, normalizedMinLimit - automaticCategoryAmount - bankContribution)
 
-        let normalizedMaxLimit = max(0, maxLimit)
-        var normalizedMinLimit = max(0, minLimit)
-        guard normalizedMinLimit > 0 else { return }
-        if normalizedMaxLimit > 0, normalizedMinLimit > normalizedMaxLimit {
-            normalizedMinLimit = normalizedMaxLimit
-        }
+        guard shortage > 0.0001 else { return nil }
 
-        let newSubcategoryID = UUID()
-        let subcategory = Subcategory(
-            id: newSubcategoryID,
-            name: trimmedName,
-            iconName: SubcategoryIconCatalog.normalized(iconName),
-            percentage: normalizedPercentage,
-            fixedMinimumPercentage: nil,
-            minLimit: normalizedMinLimit > 0 ? normalizedMinLimit : nil,
-            maxLimit: normalizedMaxLimit > 0 ? normalizedMaxLimit : nil,
-            priority: priority.rawValue
+        let candidates = forcedCoverageCandidates(
+            in: category,
+            excluding: nil
         )
 
-        settings.categories[categoryIndex].subcategories.append(subcategory)
-        allocatedBySubcategoryID[newSubcategoryID] = 0
-        syncLastBankAutoDistributionStorageWithSettings()
-        enforceUniquePriority(in: categoryIndex, selectedLevel: priority, selectedID: newSubcategoryID)
-        rebalanceForNewSubcategoryMinimum(in: categoryIndex, newSubcategoryID: newSubcategoryID)
-        recalculate()
+        return CategoryCoverageRequirement(
+            categoryType: categoryType,
+            shortageAmount: roundToCents(shortage),
+            totalAvailableAmount: roundToCents(candidates.reduce(0) { $0 + $1.availableAmount }),
+            automaticCategoryAmount: roundToCents(automaticCategoryAmount),
+            bankContributionAmount: roundToCents(bankContribution),
+            candidates: candidates
+        )
+    }
+
+    @discardableResult
+    func addCustomSubcategoryWithAutomaticForcedCoverage(
+        categoryType: ExpenseCategoryType,
+        name: String,
+        iconName: String,
+        percentage: Double,
+        minLimit: Double,
+        maxLimit: Double,
+        priority: SubcategoryPriorityLevel
+    ) -> Bool {
+        performAddCustomSubcategory(
+            categoryType: categoryType,
+            name: name,
+            iconName: iconName,
+            percentage: percentage,
+            minLimit: minLimit,
+            maxLimit: maxLimit,
+            priority: priority,
+            forcedAllocations: nil,
+            useAutomaticForcedCoverage: true
+        )
+    }
+
+    @discardableResult
+    func addCustomSubcategoryWithManualForcedCoverage(
+        categoryType: ExpenseCategoryType,
+        name: String,
+        iconName: String,
+        percentage: Double,
+        minLimit: Double,
+        maxLimit: Double,
+        priority: SubcategoryPriorityLevel,
+        allocations: [UUID: Double]
+    ) -> Bool {
+        performAddCustomSubcategory(
+            categoryType: categoryType,
+            name: name,
+            iconName: iconName,
+            percentage: percentage,
+            minLimit: minLimit,
+            maxLimit: maxLimit,
+            priority: priority,
+            forcedAllocations: allocations,
+            useAutomaticForcedCoverage: false
+        )
     }
 
     func updateSubcategory(
@@ -477,6 +608,7 @@ final class BudgetViewModel: ObservableObject {
         let allocated = allocatedBySubcategoryID[subcategoryID, default: 0]
         let remaining = max(0, allocated - subcategory.spentAmount)
         bankBalance += remaining
+        topUpEmergencyReserveFromFreeCapital()
 
         settings.categories[categoryIndex].subcategories.remove(at: subIndex)
         allocatedBySubcategoryID.removeValue(forKey: subcategoryID)
@@ -497,6 +629,411 @@ final class BudgetViewModel: ObservableObject {
 
     var bankAvailableAmount: Double {
         max(0, bankBalance)
+    }
+
+    @discardableResult
+    private func performExpense(
+        categoryType: ExpenseCategoryType,
+        subcategoryID: UUID,
+        amount: Double,
+        forcedAllocations: [UUID: Double]?,
+        useAutomaticForcedCoverage: Bool
+    ) -> Bool {
+        let normalizedAmount = max(0, amount)
+        guard normalizedAmount > 0 else { return false }
+        guard let categoryIndex = settings.categories.firstIndex(where: { $0.type == categoryType }) else { return false }
+        guard let subcategoryIndex = settings.categories[categoryIndex].subcategories.firstIndex(where: { $0.id == subcategoryID }) else { return false }
+
+        let category = settings.categories[categoryIndex]
+        let target = category.subcategories[subcategoryIndex]
+
+        let currentRemaining = availableBalance(for: target)
+        if normalizedAmount > currentRemaining + 0.0001 {
+            let autoNeeded = normalizedAmount - currentRemaining
+            _ = autoReallocateExcessWithinCategory(
+                categoryIndex: categoryIndex,
+                targetSubcategoryID: subcategoryID,
+                neededAmount: autoNeeded
+            )
+        }
+
+        var remainingAfterAuto = availableBalance(for: settings.categories[categoryIndex].subcategories[subcategoryIndex])
+        var shortageAfterAuto = max(0, normalizedAmount - remainingAfterAuto)
+
+        if shortageAfterAuto > 0.0001 {
+            let bankContribution = min(bankAvailableAmount, shortageAfterAuto)
+            shortageAfterAuto = max(0, shortageAfterAuto - bankContribution)
+        }
+
+        if shortageAfterAuto > 0.0001 {
+            if useAutomaticForcedCoverage {
+                guard applyForcedAutomaticCoverage(
+                    categoryIndex: categoryIndex,
+                    targetSubcategoryID: subcategoryID,
+                    shortageAmount: shortageAfterAuto
+                ) else {
+                    return false
+                }
+            } else if let forcedAllocations {
+                guard applyManualForcedCoverage(
+                    categoryIndex: categoryIndex,
+                    targetSubcategoryID: subcategoryID,
+                    allocations: forcedAllocations
+                ) else {
+                    return false
+                }
+            } else {
+                return false
+            }
+        }
+
+        remainingAfterAuto = availableBalance(for: settings.categories[categoryIndex].subcategories[subcategoryIndex])
+        let bankShortage = max(0, normalizedAmount - remainingAfterAuto)
+        guard bankShortage <= bankAvailableAmount + 0.0001 else { return false }
+        if bankShortage > 0 {
+            bankBalance -= bankShortage
+        }
+
+        let subcategory = settings.categories[categoryIndex].subcategories[subcategoryIndex]
+        settings.categories[categoryIndex].subcategories[subcategoryIndex].spentAmount += normalizedAmount
+        appendHistoryEvent(
+            BudgetHistoryEvent(
+                type: .expense,
+                amount: normalizedAmount,
+                currencyCode: settings.currencyCode,
+                categoryType: categoryType,
+                categoryTitleSnapshot: categoryType.title,
+                subcategoryID: subcategory.id,
+                subcategoryNameSnapshot: subcategory.name,
+                iconNameSnapshot: subcategory.iconName
+            )
+        )
+        recalculate()
+        return true
+    }
+
+    @discardableResult
+    private func performAddCustomSubcategory(
+        categoryType: ExpenseCategoryType,
+        name: String,
+        iconName: String,
+        percentage: Double,
+        minLimit: Double,
+        maxLimit: Double,
+        priority: SubcategoryPriorityLevel,
+        forcedAllocations: [UUID: Double]?,
+        useAutomaticForcedCoverage: Bool
+    ) -> Bool {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPercentage = max(0, percentage)
+        guard !trimmedName.isEmpty, normalizedPercentage > 0 else { return false }
+        guard let categoryIndex = settings.categories.firstIndex(where: { $0.type == categoryType }) else { return false }
+
+        let currentTotal = settings.categories[categoryIndex].subcategories.reduce(0) { $0 + $1.percentage }
+        let freePercent = max(0, 100 - currentTotal)
+        guard normalizedPercentage <= freePercent + 0.0001 else { return false }
+
+        let normalizedMaxLimit = max(0, maxLimit)
+        var normalizedMinLimit = max(0, minLimit)
+        guard normalizedMinLimit > 0 else { return false }
+        if normalizedMaxLimit > 0, normalizedMinLimit > normalizedMaxLimit {
+            normalizedMinLimit = normalizedMaxLimit
+        }
+
+        let requirement = newSubcategoryCoverageRequirement(
+            categoryType: categoryType,
+            minLimit: normalizedMinLimit
+        )
+        if let requirement {
+            guard requirement.canCover else { return false }
+            if !useAutomaticForcedCoverage && forcedAllocations == nil {
+                return false
+            }
+        }
+
+        let newSubcategoryID = UUID()
+        let subcategory = Subcategory(
+            id: newSubcategoryID,
+            name: trimmedName,
+            iconName: SubcategoryIconCatalog.normalized(iconName),
+            percentage: normalizedPercentage,
+            fixedMinimumPercentage: nil,
+            minLimit: normalizedMinLimit > 0 ? normalizedMinLimit : nil,
+            maxLimit: normalizedMaxLimit > 0 ? normalizedMaxLimit : nil,
+            priority: priority.rawValue
+        )
+
+        settings.categories[categoryIndex].subcategories.append(subcategory)
+        allocatedBySubcategoryID[newSubcategoryID] = 0
+        syncLastBankAutoDistributionStorageWithSettings()
+        enforceUniquePriority(in: categoryIndex, selectedLevel: priority, selectedID: newSubcategoryID)
+
+        _ = autoReallocateExcessWithinCategory(
+            categoryIndex: categoryIndex,
+            targetSubcategoryID: newSubcategoryID,
+            neededAmount: normalizedMinLimit
+        )
+
+        let currentAllocated = allocatedBySubcategoryID[newSubcategoryID, default: 0]
+        let bankTopUp = min(bankAvailableAmount, max(0, normalizedMinLimit - currentAllocated))
+        if bankTopUp > 0 {
+            bankBalance -= bankTopUp
+            allocatedBySubcategoryID[newSubcategoryID, default: 0] += bankTopUp
+            appendHistoryEvent(
+                BudgetHistoryEvent(
+                    type: .transferFromFreeCapital,
+                    amount: roundToCents(bankTopUp),
+                    currencyCode: settings.currencyCode,
+                    categoryType: categoryType,
+                    categoryTitleSnapshot: categoryType.title,
+                    subcategoryID: newSubcategoryID,
+                    subcategoryNameSnapshot: trimmedName,
+                    iconNameSnapshot: subcategory.iconName
+                )
+            )
+        }
+
+        let shortageAfterNormal = max(0, normalizedMinLimit - allocatedBySubcategoryID[newSubcategoryID, default: 0])
+        if shortageAfterNormal > 0.0001 {
+            let forcedApplied: Bool
+            if useAutomaticForcedCoverage {
+                forcedApplied = applyForcedAutomaticCoverage(
+                    categoryIndex: categoryIndex,
+                    targetSubcategoryID: newSubcategoryID,
+                    shortageAmount: shortageAfterNormal
+                )
+            } else if let forcedAllocations {
+                forcedApplied = applyManualForcedCoverage(
+                    categoryIndex: categoryIndex,
+                    targetSubcategoryID: newSubcategoryID,
+                    allocations: forcedAllocations
+                )
+            } else {
+                forcedApplied = false
+            }
+
+            if !forcedApplied {
+                settings.categories[categoryIndex].subcategories.removeAll { $0.id == newSubcategoryID }
+                allocatedBySubcategoryID.removeValue(forKey: newSubcategoryID)
+                syncLastBankAutoDistributionStorageWithSettings()
+                return false
+            }
+        }
+
+        recalculate()
+        return true
+    }
+
+    private func automaticCategoryCoverageAmount(
+        in category: ExpenseCategory,
+        excluding subcategoryID: UUID?
+    ) -> Double {
+        let categoryRemainingAmount = categoryCurrentRemaining(for: category)
+        return category.subcategories
+            .filter { $0.id != subcategoryID }
+            .reduce(0.0) { partialResult, subcategory in
+                let remaining = availableBalance(for: subcategory)
+                let protectedAmount = minimumCommitment(
+                    for: subcategory,
+                    categoryAmount: categoryRemainingAmount
+                )
+                return partialResult + max(0, remaining - protectedAmount)
+            }
+    }
+
+    private func forcedCoverageCandidates(
+        in category: ExpenseCategory,
+        excluding subcategoryID: UUID?
+    ) -> [CategoryCoverageCandidate] {
+        let categoryRemainingAmount = categoryCurrentRemaining(for: category)
+
+        return category.subcategories.compactMap { subcategory in
+            guard subcategory.id != subcategoryID else { return nil }
+            let remaining = availableBalance(for: subcategory)
+            guard remaining > 0.0001 else { return nil }
+
+            let protectedAmount = minimumCommitment(
+                for: subcategory,
+                categoryAmount: categoryRemainingAmount
+            )
+            let alreadyFreeAmount = max(0, remaining - protectedAmount)
+            let forcedAmount = max(0, remaining - alreadyFreeAmount)
+            guard forcedAmount > 0.0001 else { return nil }
+
+            return CategoryCoverageCandidate(
+                subcategoryID: subcategory.id,
+                name: subcategory.name,
+                iconName: subcategory.iconName,
+                availableAmount: roundToCents(forcedAmount)
+            )
+        }
+        .sorted { $0.availableAmount > $1.availableAmount }
+    }
+
+    @discardableResult
+    private func autoReallocateExcessWithinCategory(
+        categoryIndex: Int,
+        targetSubcategoryID: UUID,
+        neededAmount: Double
+    ) -> Double {
+        guard settings.categories.indices.contains(categoryIndex) else { return 0 }
+        guard neededAmount > 0.0001 else { return 0 }
+
+        let category = settings.categories[categoryIndex]
+        let categoryRemainingAmount = categoryCurrentRemaining(for: category)
+        var remainingNeed = neededAmount
+        var transferred: Double = 0
+        let priorityOrder = [SubcategoryPriorityLevel.low.rawValue, SubcategoryPriorityLevel.medium.rawValue, SubcategoryPriorityLevel.high.rawValue]
+
+        for level in priorityOrder {
+            for donor in category.subcategories where donor.id != targetSubcategoryID && donor.priority == level {
+                guard remainingNeed > 0.0001 else { break }
+
+                let donorRemaining = availableBalance(for: donor)
+                let protectedAmount = minimumCommitment(
+                    for: donor,
+                    categoryAmount: categoryRemainingAmount
+                )
+                let freeAmount = max(0, donorRemaining - protectedAmount)
+                let transferAmount = min(freeAmount, remainingNeed)
+                guard transferAmount > 0.0001 else { continue }
+
+                allocatedBySubcategoryID[donor.id, default: 0] -= transferAmount
+                allocatedBySubcategoryID[targetSubcategoryID, default: 0] += transferAmount
+                appendCategoryTransferHistory(
+                    categoryType: category.type,
+                    from: donor,
+                    to: settings.categories[categoryIndex].subcategories.first(where: { $0.id == targetSubcategoryID }) ?? donor,
+                    amount: transferAmount
+                )
+                transferred += transferAmount
+                remainingNeed -= transferAmount
+            }
+        }
+
+        return roundToCents(transferred)
+    }
+
+    private func applyForcedAutomaticCoverage(
+        categoryIndex: Int,
+        targetSubcategoryID: UUID,
+        shortageAmount: Double
+    ) -> Bool {
+        let category = settings.categories[categoryIndex]
+        let candidates = forcedCoverageCandidates(
+            in: category,
+            excluding: targetSubcategoryID
+        )
+        let totalAvailable = candidates.reduce(0) { $0 + $1.availableAmount }
+        guard totalAvailable + 0.0001 >= shortageAmount else { return false }
+        guard let target = settings.categories[categoryIndex].subcategories.first(where: { $0.id == targetSubcategoryID }) else { return false }
+
+        var remainingNeed = shortageAmount
+        var allocations: [UUID: Double] = [:]
+
+        for (index, candidate) in candidates.enumerated() {
+            let amount: Double
+            if index == candidates.count - 1 {
+                amount = remainingNeed
+            } else {
+                amount = roundToCents(shortageAmount * (candidate.availableAmount / totalAvailable))
+            }
+            let capped = min(candidate.availableAmount, amount)
+            allocations[candidate.subcategoryID] = capped
+            remainingNeed -= capped
+        }
+
+        if remainingNeed > 0.0001 {
+            for candidate in candidates where remainingNeed > 0.0001 {
+                let current = allocations[candidate.subcategoryID, default: 0]
+                let spare = max(0, candidate.availableAmount - current)
+                guard spare > 0.0001 else { continue }
+                let extra = min(spare, remainingNeed)
+                allocations[candidate.subcategoryID] = current + extra
+                remainingNeed -= extra
+            }
+        }
+
+        guard remainingNeed <= 0.0001 else { return false }
+        return applyForcedCoverageAllocations(
+            categoryIndex: categoryIndex,
+            target: target,
+            allocations: allocations
+        )
+    }
+
+    private func applyManualForcedCoverage(
+        categoryIndex: Int,
+        targetSubcategoryID: UUID,
+        allocations: [UUID: Double]
+    ) -> Bool {
+        guard let target = settings.categories[categoryIndex].subcategories.first(where: { $0.id == targetSubcategoryID }) else { return false }
+        return applyForcedCoverageAllocations(
+            categoryIndex: categoryIndex,
+            target: target,
+            allocations: allocations
+        )
+    }
+
+    private func applyForcedCoverageAllocations(
+        categoryIndex: Int,
+        target: Subcategory,
+        allocations: [UUID: Double]
+    ) -> Bool {
+        guard settings.categories.indices.contains(categoryIndex) else { return false }
+        let category = settings.categories[categoryIndex]
+        let availableByID = Dictionary(
+            uniqueKeysWithValues: forcedCoverageCandidates(in: category, excluding: target.id).map {
+                ($0.subcategoryID, $0.availableAmount)
+            }
+        )
+
+        var totalApplied: Double = 0
+
+        for (donorID, rawAmount) in allocations {
+            let amount = roundToCents(max(0, rawAmount))
+            guard amount > 0.0001 else { continue }
+            guard let available = availableByID[donorID], amount <= available + 0.0001 else { return false }
+            guard let donor = settings.categories[categoryIndex].subcategories.first(where: { $0.id == donorID }) else { return false }
+
+            allocatedBySubcategoryID[donorID, default: 0] -= amount
+            allocatedBySubcategoryID[target.id, default: 0] += amount
+            appendCategoryTransferHistory(
+                categoryType: category.type,
+                from: donor,
+                to: target,
+                amount: amount
+            )
+            totalApplied += amount
+        }
+
+        return totalApplied > 0.0001
+    }
+
+    private func appendCategoryTransferHistory(
+        categoryType: ExpenseCategoryType,
+        from source: Subcategory,
+        to target: Subcategory,
+        amount: Double
+    ) {
+        appendHistoryEvent(
+            BudgetHistoryEvent(
+                type: .categoryReallocation,
+                amount: roundToCents(amount),
+                currencyCode: settings.currencyCode,
+                categoryType: categoryType,
+                categoryTitleSnapshot: categoryType.title,
+                subcategoryID: source.id,
+                subcategoryNameSnapshot: source.name,
+                iconNameSnapshot: source.iconName,
+                counterpartyNameSnapshot: target.name
+            )
+        )
+    }
+
+    private func availableBalance(for subcategory: Subcategory) -> Double {
+        let allocated = allocatedBySubcategoryID[subcategory.id, default: 0]
+        return max(0, allocated - subcategory.spentAmount)
     }
 
     private func syncAllocationStorageWithSettings() {
@@ -548,6 +1085,7 @@ final class BudgetViewModel: ObservableObject {
             lastIncomeToBankByCategoryID: &lastIncomeToBankByCategoryID,
             lastBankAutoDistributedBySubcategoryID: &lastBankAutoDistributedBySubcategoryID
         )
+        topUpEmergencyReserveFromFreeCapital()
     }
 
     private func buildDistribution() -> BudgetDistribution {
@@ -692,6 +1230,17 @@ final class BudgetViewModel: ObservableObject {
             settings: settings,
             allocatedBySubcategoryID: &allocatedBySubcategoryID,
             bankBalance: &bankBalance
+        )
+        topUpEmergencyReserveFromFreeCapital()
+    }
+
+    private func topUpEmergencyReserveFromFreeCapital() {
+        allocationEngine.resolveEmergencyReserveMinimumFromBank(
+            settings: settings,
+            allocatedBySubcategoryID: &allocatedBySubcategoryID,
+            bankBalance: &bankBalance,
+            lastBankAutoDistributedBySubcategoryID: &lastBankAutoDistributedBySubcategoryID,
+            trackAutoDistribution: true
         )
     }
 

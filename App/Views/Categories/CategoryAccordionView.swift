@@ -7,6 +7,9 @@ struct CategoryAccordionView: View {
     let lastIncomeAmount: Double
     let bankAvailableAmount: Double
     let onPayExpense: (ExpenseCategoryType, UUID, Double, Bool) -> Void
+    let expenseCoverageRequirement: (ExpenseCategoryType, UUID, Double) -> CategoryCoverageRequirement?
+    let onPayExpenseWithAutomaticForcedCoverage: (ExpenseCategoryType, UUID, Double) -> Void
+    let onPayExpenseWithManualForcedCoverage: (ExpenseCategoryType, UUID, Double, [UUID: Double]) -> Void
     let onAddSubcategory: (
         ExpenseCategoryType,
         String,
@@ -15,6 +18,26 @@ struct CategoryAccordionView: View {
         Double,
         Double,
         SubcategoryPriorityLevel
+    ) -> Void
+    let newSubcategoryCoverageRequirement: (ExpenseCategoryType, Double) -> CategoryCoverageRequirement?
+    let onAddSubcategoryWithAutomaticForcedCoverage: (
+        ExpenseCategoryType,
+        String,
+        String,
+        Double,
+        Double,
+        Double,
+        SubcategoryPriorityLevel
+    ) -> Void
+    let onAddSubcategoryWithManualForcedCoverage: (
+        ExpenseCategoryType,
+        String,
+        String,
+        Double,
+        Double,
+        Double,
+        SubcategoryPriorityLevel,
+        [UUID: Double]
     ) -> Void
     let onUpdateSubcategory: (
         ExpenseCategoryType,
@@ -59,6 +82,9 @@ struct CategoryAccordionView: View {
         lastIncomeAmount: Double,
         bankAvailableAmount: Double,
         onPayExpense: @escaping (ExpenseCategoryType, UUID, Double, Bool) -> Void,
+        expenseCoverageRequirement: @escaping (ExpenseCategoryType, UUID, Double) -> CategoryCoverageRequirement?,
+        onPayExpenseWithAutomaticForcedCoverage: @escaping (ExpenseCategoryType, UUID, Double) -> Void,
+        onPayExpenseWithManualForcedCoverage: @escaping (ExpenseCategoryType, UUID, Double, [UUID: Double]) -> Void,
         onAddSubcategory: @escaping (
             ExpenseCategoryType,
             String,
@@ -67,6 +93,26 @@ struct CategoryAccordionView: View {
             Double,
             Double,
             SubcategoryPriorityLevel
+        ) -> Void,
+        newSubcategoryCoverageRequirement: @escaping (ExpenseCategoryType, Double) -> CategoryCoverageRequirement?,
+        onAddSubcategoryWithAutomaticForcedCoverage: @escaping (
+            ExpenseCategoryType,
+            String,
+            String,
+            Double,
+            Double,
+            Double,
+            SubcategoryPriorityLevel
+        ) -> Void,
+        onAddSubcategoryWithManualForcedCoverage: @escaping (
+            ExpenseCategoryType,
+            String,
+            String,
+            Double,
+            Double,
+            Double,
+            SubcategoryPriorityLevel,
+            [UUID: Double]
         ) -> Void,
         onUpdateSubcategory: @escaping (
             ExpenseCategoryType,
@@ -87,7 +133,13 @@ struct CategoryAccordionView: View {
         self.lastIncomeAmount = lastIncomeAmount
         self.bankAvailableAmount = bankAvailableAmount
         self.onPayExpense = onPayExpense
+        self.expenseCoverageRequirement = expenseCoverageRequirement
+        self.onPayExpenseWithAutomaticForcedCoverage = onPayExpenseWithAutomaticForcedCoverage
+        self.onPayExpenseWithManualForcedCoverage = onPayExpenseWithManualForcedCoverage
         self.onAddSubcategory = onAddSubcategory
+        self.newSubcategoryCoverageRequirement = newSubcategoryCoverageRequirement
+        self.onAddSubcategoryWithAutomaticForcedCoverage = onAddSubcategoryWithAutomaticForcedCoverage
+        self.onAddSubcategoryWithManualForcedCoverage = onAddSubcategoryWithManualForcedCoverage
         self.onUpdateSubcategory = onUpdateSubcategory
         self.onDeleteSubcategory = onDeleteSubcategory
         self.onWithdrawFunds = onWithdrawFunds
@@ -162,14 +214,28 @@ struct CategoryAccordionView: View {
             )
         }
         .sheet(item: $expenseTarget) { target in
+            let coverageRequirement = expenseCoverageRequirement(
+                target.categoryType,
+                target.subcategoryID,
+                nonNegativeValue(from: expenseInput)
+            )
+
             ExpenseSheetView(
                 target: target,
                 currencyCode: currencyCode,
                 bankAvailableAmount: bankAvailableAmount,
+                coverageRequirement: coverageRequirement,
                 expenseInput: $expenseInput,
-                useBankForExpense: $useBankForExpense,
                 onPay: { amount, useBankIfNeeded in
                     onPayExpense(target.categoryType, target.subcategoryID, amount, useBankIfNeeded)
+                    expenseTarget = nil
+                },
+                onAutoForcedPay: { amount in
+                    onPayExpenseWithAutomaticForcedCoverage(target.categoryType, target.subcategoryID, amount)
+                    expenseTarget = nil
+                },
+                onManualForcedPay: { amount, allocations in
+                    onPayExpenseWithManualForcedCoverage(target.categoryType, target.subcategoryID, amount, allocations)
                     expenseTarget = nil
                 },
                 onCancel: {
@@ -182,6 +248,10 @@ struct CategoryAccordionView: View {
             let mediumName = priorityHolder(categoryType: target.type, level: .medium)?.name ?? "не назначен"
             let freePercent = maxAllowedPercentForAdd(categoryType: target.type)
             let freeMoney = maxAllowedMoneyForAdd(categoryType: target.type)
+            let coverageRequirement = newSubcategoryCoverageRequirement(
+                target.type,
+                nonNegativeValue(from: subcategoryMinAmountInput)
+            )
 
             AddSubcategorySheetView(
                 target: target,
@@ -189,6 +259,7 @@ struct CategoryAccordionView: View {
                 bankAvailableAmount: bankAvailableAmount,
                 freePercent: freePercent,
                 freeMoney: freeMoney,
+                coverageRequirement: coverageRequirement,
                 highPriorityName: highName,
                 mediumPriorityName: mediumName,
                 subcategoryNameInput: $subcategoryNameInput,
@@ -212,6 +283,12 @@ struct CategoryAccordionView: View {
                 },
                 onCreate: {
                     createSubcategory(for: target)
+                },
+                onCreateWithAutomaticForcedCoverage: {
+                    createSubcategoryWithAutomaticForcedCoverage(for: target)
+                },
+                onCreateWithManualForcedCoverage: { allocations in
+                    createSubcategoryWithManualForcedCoverage(for: target, allocations: allocations)
                 },
                 onCancel: {
                     addSubcategoryTarget = nil
@@ -308,10 +385,12 @@ struct CategoryAccordionView: View {
         let normalizedPercent = nonNegativeValue(from: subcategoryPercentInput)
         let normalizedMinAmount = nonNegativeValue(from: subcategoryMinAmountInput)
         let freePercent = maxAllowedPercentForAdd(categoryType: target.type)
+        let coverageRequirement = newSubcategoryCoverageRequirement(target.type, normalizedMinAmount)
         return !normalizedName.isEmpty
             && normalizedPercent > 0
             && normalizedPercent <= freePercent
             && normalizedMinAmount > 0
+            && (coverageRequirement?.canCover != false)
     }
 
     private var canSaveEditedSubcategory: Bool {
@@ -332,7 +411,7 @@ struct CategoryAccordionView: View {
             currentAmount: subcategory.remainingAmount
         )
         expenseInput = ""
-        useBankForExpense = false
+        useBankForExpense = true
     }
 
     private func openEditSubcategorySheet(for categoryType: ExpenseCategoryType, subcategory: SubcategoryAllocation) {
@@ -376,10 +455,12 @@ struct CategoryAccordionView: View {
         let mainPercent = nonNegativeValue(from: subcategoryPercentInput)
         let freePercent = maxAllowedPercentForAdd(categoryType: target.type)
         let minAmount = nonNegativeValue(from: subcategoryMinAmountInput)
+        let coverageRequirement = newSubcategoryCoverageRequirement(target.type, minAmount)
         guard !name.isEmpty,
               mainPercent > 0,
               mainPercent <= freePercent,
-              minAmount > 0 else { return }
+              minAmount > 0,
+              coverageRequirement == nil else { return }
 
         let maxAmount = nonNegativeValue(from: subcategoryMaxAmountInput)
 
@@ -391,6 +472,62 @@ struct CategoryAccordionView: View {
             minAmount,
             maxAmount,
             subcategoryPriority
+        )
+        addSubcategoryTarget = nil
+    }
+
+    private func createSubcategoryWithAutomaticForcedCoverage(for target: AddSubcategoryTarget) {
+        let name = subcategoryNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let mainPercent = nonNegativeValue(from: subcategoryPercentInput)
+        let freePercent = maxAllowedPercentForAdd(categoryType: target.type)
+        let minAmount = nonNegativeValue(from: subcategoryMinAmountInput)
+        guard !name.isEmpty,
+              mainPercent > 0,
+              mainPercent <= freePercent,
+              minAmount > 0 else { return }
+
+        let coverageRequirement = newSubcategoryCoverageRequirement(target.type, minAmount)
+        guard coverageRequirement?.canCover == true else { return }
+
+        let maxAmount = nonNegativeValue(from: subcategoryMaxAmountInput)
+        onAddSubcategoryWithAutomaticForcedCoverage(
+            target.type,
+            name,
+            subcategoryIconName,
+            mainPercent,
+            minAmount,
+            maxAmount,
+            subcategoryPriority
+        )
+        addSubcategoryTarget = nil
+    }
+
+    private func createSubcategoryWithManualForcedCoverage(
+        for target: AddSubcategoryTarget,
+        allocations: [UUID: Double]
+    ) {
+        let name = subcategoryNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let mainPercent = nonNegativeValue(from: subcategoryPercentInput)
+        let freePercent = maxAllowedPercentForAdd(categoryType: target.type)
+        let minAmount = nonNegativeValue(from: subcategoryMinAmountInput)
+        guard !name.isEmpty,
+              mainPercent > 0,
+              mainPercent <= freePercent,
+              minAmount > 0 else { return }
+
+        let coverageRequirement = newSubcategoryCoverageRequirement(target.type, minAmount)
+        guard coverageRequirement?.canCover == true else { return }
+
+        let maxAmount = nonNegativeValue(from: subcategoryMaxAmountInput)
+        onAddSubcategoryWithManualForcedCoverage(
+            target.type,
+            name,
+            subcategoryIconName,
+            mainPercent,
+            minAmount,
+            maxAmount,
+            subcategoryPriority,
+            allocations
         )
         addSubcategoryTarget = nil
     }

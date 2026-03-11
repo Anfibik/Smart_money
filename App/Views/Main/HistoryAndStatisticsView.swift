@@ -463,7 +463,7 @@ struct HistoryAndStatisticsView: View {
             prefix = "+"
         case .expense:
             prefix = "-"
-        case .transferToFreeCapital, .transferFromFreeCapital:
+        case .transferToFreeCapital, .transferFromFreeCapital, .categoryReallocation:
             prefix = ""
         }
         return "\(prefix)\(currency(event.amount))"
@@ -475,7 +475,7 @@ struct HistoryAndStatisticsView: View {
             return .green
         case .expense:
             return .red
-        case .transferToFreeCapital, .transferFromFreeCapital:
+        case .transferToFreeCapital, .transferFromFreeCapital, .categoryReallocation:
             return .blue
         }
     }

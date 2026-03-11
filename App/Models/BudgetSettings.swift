@@ -60,7 +60,7 @@ struct BudgetSettings: Codable, Hashable {
                     name: "Шопинг",
                     isSystem: true,
                     iconName: "cart.fill",
-                    percentage: 5,
+                    percentage: 30,
                     minLimit: 0,
                     priority: 1
                 ),
@@ -68,7 +68,7 @@ struct BudgetSettings: Codable, Hashable {
                     name: "Хобби",
                     isSystem: true,
                     iconName: "gamecontroller.fill",
-                    percentage: 10,
+                    percentage: 20,
                     minLimit: 0,
                     priority: 1
                 ),
@@ -76,7 +76,7 @@ struct BudgetSettings: Codable, Hashable {
                     name: "Развлечения",
                     isSystem: true,
                     iconName: "sparkles",
-                    percentage: 10,
+                    percentage: 20,
                     minLimit: 0,
                     priority: 1
                 ),
@@ -91,7 +91,7 @@ struct BudgetSettings: Codable, Hashable {
                     name: "Подушка",
                     isSystem: true,
                     iconName: "shield.fill",
-                    percentage: 25,
+                    percentage: 50,
                     minLimit: 0,
                     priority: 2
                 ),

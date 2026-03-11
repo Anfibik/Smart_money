@@ -136,7 +136,7 @@ struct StartOnboardingBuilder {
                 categoryType: .savings,
                 name: "Подушка",
                 iconName: defaultSystemIcon(for: "Подушка"),
-                note: "Цель 6 месяцев"
+                note: "Минимум 6 месяцев, сначала пополняется из свободного капитала"
             )
         ]
 
@@ -234,15 +234,15 @@ struct StartOnboardingBuilder {
         )
         let childrenMin = roundToCents(essentialsBudget * ((childrenPercentage ?? 0) / 100.0))
         let transportMin = roundToCents(essentialsBudget * ((transportPercentage ?? 0) / 100.0))
-        let shoppingMin = roundToCents(wantsBudget * 0.05)
-        let hobbyMin = roundToCents(wantsBudget * 0.10)
-        let entertainmentMin = roundToCents(wantsBudget * 0.10)
+        let shoppingMin = roundToCents(wantsBudget * 0.30)
+        let hobbyMin = roundToCents(wantsBudget * 0.20)
+        let entertainmentMin = roundToCents(wantsBudget * 0.20)
         let debtMin = roundToCents(max(savingsBudget * 0.50, abs(min(0, input.capital)) / 24.0))
         let creditMin = roundToCents(max(input.creditMonthlyPayment, savingsBudget * 0.10))
 
         let mandatoryLivingMonthly = housingMin + foodMin + healthMin + childrenMin + transportMin + debtMin + creditMin
         let emergencyTarget = roundToCents(mandatoryLivingMonthly * 6.0)
-        let emergencyMin = roundToCents(max(0, emergencyTarget - input.positiveCapital) / 12.0)
+        let emergencyMin = emergencyTarget
 
         var categories: [ExpenseCategory] = [
             ExpenseCategory(
@@ -362,19 +362,19 @@ struct StartOnboardingBuilder {
         [
             systemSubcategory(
                 name: "Шопинг",
-                percentage: 5,
+                percentage: 30,
                 minLimit: shoppingMin,
                 priority: .low
             ),
             systemSubcategory(
                 name: "Хобби",
-                percentage: 10,
+                percentage: 20,
                 minLimit: hobbyMin,
                 priority: .low
             ),
             systemSubcategory(
                 name: "Развлечения",
-                percentage: 10,
+                percentage: 20,
                 minLimit: entertainmentMin,
                 priority: .low
             )
@@ -391,7 +391,7 @@ struct StartOnboardingBuilder {
         var cards: [Subcategory] = [
             systemSubcategory(
                 name: "Подушка",
-                percentage: 25,
+                percentage: 50,
                 minLimit: emergencyMin,
                 priority: .medium
             )
@@ -501,7 +501,12 @@ struct StartOnboardingBuilder {
         let budgetsByType = Dictionary(uniqueKeysWithValues: categoryBudgets.map { ($0.type, $0.monthlyAmount) })
 
         for category in settings.categories {
-            let minimumSum = category.subcategories.reduce(0.0) { $0 + max(0, $1.minLimit ?? 0) }
+            let minimumSum = category.subcategories.reduce(0.0) { partialResult, subcategory in
+                if category.type == .savings && subcategory.name == "Подушка" {
+                    return partialResult
+                }
+                return partialResult + max(0, subcategory.minLimit ?? 0)
+            }
             let categoryBudget = budgetsByType[category.type, default: 0]
             if minimumSum > categoryBudget + 0.01 {
                 warnings.append("Минимумы категории «\(category.type.title)» выше ее месячного бюджета. Разница будет покрываться из свободного капитала.")

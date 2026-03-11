@@ -36,6 +36,28 @@ struct ContentView: View {
                                         useBankIfNeeded: useBankIfNeeded
                                     )
                                 },
+                                expenseCoverageRequirement: { categoryType, subcategoryID, amount in
+                                    budgetViewModel.expenseCoverageRequirement(
+                                        categoryType: categoryType,
+                                        subcategoryID: subcategoryID,
+                                        amount: amount
+                                    )
+                                },
+                                onPayExpenseWithAutomaticForcedCoverage: { categoryType, subcategoryID, amount in
+                                    budgetViewModel.addExpenseWithAutomaticForcedCoverage(
+                                        categoryType: categoryType,
+                                        subcategoryID: subcategoryID,
+                                        amount: amount
+                                    )
+                                },
+                                onPayExpenseWithManualForcedCoverage: { categoryType, subcategoryID, amount, allocations in
+                                    budgetViewModel.addExpenseWithManualForcedCoverage(
+                                        categoryType: categoryType,
+                                        subcategoryID: subcategoryID,
+                                        amount: amount,
+                                        allocations: allocations
+                                    )
+                                },
                                 onAddSubcategory: { categoryType, name, iconName, percentage, minAmount, maxAmount, priority in
                                     budgetViewModel.addCustomSubcategory(
                                         categoryType: categoryType,
@@ -45,6 +67,35 @@ struct ContentView: View {
                                         minLimit: minAmount,
                                         maxLimit: maxAmount,
                                         priority: priority
+                                    )
+                                },
+                                newSubcategoryCoverageRequirement: { categoryType, minAmount in
+                                    budgetViewModel.newSubcategoryCoverageRequirement(
+                                        categoryType: categoryType,
+                                        minLimit: minAmount
+                                    )
+                                },
+                                onAddSubcategoryWithAutomaticForcedCoverage: { categoryType, name, iconName, percentage, minAmount, maxAmount, priority in
+                                    budgetViewModel.addCustomSubcategoryWithAutomaticForcedCoverage(
+                                        categoryType: categoryType,
+                                        name: name,
+                                        iconName: iconName,
+                                        percentage: percentage,
+                                        minLimit: minAmount,
+                                        maxLimit: maxAmount,
+                                        priority: priority
+                                    )
+                                },
+                                onAddSubcategoryWithManualForcedCoverage: { categoryType, name, iconName, percentage, minAmount, maxAmount, priority, allocations in
+                                    budgetViewModel.addCustomSubcategoryWithManualForcedCoverage(
+                                        categoryType: categoryType,
+                                        name: name,
+                                        iconName: iconName,
+                                        percentage: percentage,
+                                        minLimit: minAmount,
+                                        maxLimit: maxAmount,
+                                        priority: priority,
+                                        allocations: allocations
                                     )
                                 },
                                 onUpdateSubcategory: { categoryType, subcategoryID, name, iconName, percentage, minAmount, maxAmount, priority in

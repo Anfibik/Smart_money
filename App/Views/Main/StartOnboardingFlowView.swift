@@ -15,6 +15,12 @@ struct StartOnboardingFlowView: View {
     @State private var creditPaymentInput = ""
     @State private var strategy: StartStrategyType = .stability
     @State private var customCards: [EditableCustomCard] = []
+    @State private var isCustomCardSheetPresented = false
+    @State private var customCardDraft = EditableCustomCard(
+        categoryType: .essentials,
+        iconName: SubcategoryIconCatalog.selectableSymbols.first ?? SubcategoryIconCatalog.fallbackSymbol
+    )
+    @State private var editingCustomCardID: UUID?
 
     private let builder = StartOnboardingBuilder()
 
@@ -48,6 +54,14 @@ struct StartOnboardingFlowView: View {
             .background(AppTheme.appBackground.ignoresSafeArea())
             .navigationTitle("Стартовая настройка")
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $isCustomCardSheetPresented, onDismiss: resetCustomCardSheetState) {
+                CustomCardSheetView(
+                    draft: $customCardDraft,
+                    isEditing: editingCustomCardID != nil,
+                    onCancel: dismissCustomCardSheet,
+                    onSave: saveCustomCardDraft
+                )
+            }
         }
     }
 
@@ -76,7 +90,7 @@ struct StartOnboardingFlowView: View {
                 )
 
                 inputField(
-                    title: "Текущий капитал в наличных*",
+                    title: "Свободный капитал*",
                     text: $capitalInput,
                     prompt: "Можно отрицательное значение"
                 )
@@ -369,12 +383,12 @@ struct StartOnboardingFlowView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(indices, id: \.self) { index in
-                    customCardEditor(index: index)
+                    customCardRow(index: index)
                 }
             }
 
             Button {
-                appendCustomCard(to: categoryType)
+                presentNewCustomCardSheet(for: categoryType)
             } label: {
                 Label("Добавить карту", systemImage: "plus.circle.fill")
             }
@@ -382,53 +396,53 @@ struct StartOnboardingFlowView: View {
         }
     }
 
-    private func customCardEditor(index: Int) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+    private func customCardRow(index: Int) -> some View {
+        let card = customCards[index]
+
+        return VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(customCards[index].categoryType.title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button(role: .destructive) {
-                    customCards.remove(at: index)
-                } label: {
-                    Image(systemName: "trash")
+                Image(systemName: card.iconName)
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(card.name)
+                        .font(.subheadline.weight(.medium))
+
+                    Text("Минимум: \(parsedDouble(card.minInput), format: .currency(code: "UAH"))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    if card.percentageInput.isEmpty {
+                        Text("Процент: будет рассчитан от минимума")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Процент: \(parsedDouble(card.percentageInput), specifier: "%.2f")%")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
+
+                Spacer()
+
+                HStack(spacing: 12) {
+                    Button {
+                        presentEditCustomCardSheet(for: card.id)
+                    } label: {
+                        Image(systemName: "pencil")
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(role: .destructive) {
+                        customCards.remove(at: index)
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.plain)
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
             }
-
-            inputField(
-                title: "Название*",
-                text: Binding(
-                    get: { customCards[index].name },
-                    set: { customCards[index].name = $0 }
-                ),
-                prompt: "Например, Путешествия"
-            )
-
-            SubcategoryIconPickerView(
-                selectedIconName: Binding(
-                    get: { customCards[index].iconName },
-                    set: { customCards[index].iconName = $0 }
-                )
-            )
-
-            inputField(
-                title: "Минимальная сумма*",
-                text: Binding(
-                    get: { customCards[index].minInput },
-                    set: { customCards[index].minInput = $0 }
-                ),
-                prompt: "Обязательный минимум"
-            )
-
-            inputField(
-                title: "Процент внутри категории",
-                text: Binding(
-                    get: { customCards[index].percentageInput },
-                    set: { customCards[index].percentageInput = $0 }
-                ),
-                prompt: "Необязательно"
-            )
         }
         .padding()
         .background(AppTheme.panelBackground)
@@ -636,13 +650,41 @@ struct StartOnboardingFlowView: View {
         customCards.indices.filter { customCards[$0].categoryType == categoryType }
     }
 
-    private func appendCustomCard(to categoryType: ExpenseCategoryType) {
-        customCards.append(
-            EditableCustomCard(
-                categoryType: categoryType,
-                iconName: SubcategoryIconCatalog.selectableSymbols.first ?? SubcategoryIconCatalog.fallbackSymbol
-            )
+    private func presentNewCustomCardSheet(for categoryType: ExpenseCategoryType) {
+        editingCustomCardID = nil
+        customCardDraft = EditableCustomCard(
+            categoryType: categoryType,
+            iconName: SubcategoryIconCatalog.selectableSymbols.first ?? SubcategoryIconCatalog.fallbackSymbol
         )
+        isCustomCardSheetPresented = true
+    }
+
+    private func presentEditCustomCardSheet(for id: UUID) {
+        guard let card = customCards.first(where: { $0.id == id }) else { return }
+        editingCustomCardID = id
+        customCardDraft = card
+        isCustomCardSheetPresented = true
+    }
+
+    private func saveCustomCardDraft() {
+        guard customCardDraft.isValid else { return }
+
+        if let editingCustomCardID,
+           let index = customCards.firstIndex(where: { $0.id == editingCustomCardID }) {
+            customCards[index] = customCardDraft
+        } else {
+            customCards.append(customCardDraft)
+        }
+
+        dismissCustomCardSheet()
+    }
+
+    private func dismissCustomCardSheet() {
+        isCustomCardSheetPresented = false
+    }
+
+    private func resetCustomCardSheetState() {
+        editingCustomCardID = nil
     }
 
     private func parsedDouble(_ input: String) -> Double {
@@ -675,5 +717,133 @@ private struct EditableCustomCard: Identifiable, Hashable {
         self.iconName = iconName
         self.minInput = minInput
         self.percentageInput = percentageInput
+    }
+
+    var isValid: Bool {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let minValue = parsedDecimal(minInput)
+        let percentValue = parsedDecimal(percentageInput)
+
+        guard !trimmedName.isEmpty, minValue > 0 else {
+            return false
+        }
+
+        return percentageInput.isEmpty || percentValue > 0
+    }
+
+    private func parsedDecimal(_ input: String) -> Double {
+        let normalized = input
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: ",", with: ".")
+        return Double(normalized) ?? 0
+    }
+}
+
+private struct CustomCardSheetView: View {
+    @Binding var draft: EditableCustomCard
+
+    let isEditing: Bool
+    let onCancel: () -> Void
+    let onSave: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    infoSection
+
+                    fieldCard {
+                        textField(
+                            title: "Название*",
+                            text: $draft.name,
+                            prompt: "Например, Путешествия"
+                        )
+
+                        SubcategoryIconPickerView(selectedIconName: $draft.iconName)
+
+                        numericField(
+                            title: "Минимальная сумма*",
+                            text: $draft.minInput,
+                            prompt: "Обязательный минимум"
+                        )
+
+                        numericField(
+                            title: "Процент внутри категории",
+                            text: $draft.percentageInput,
+                            prompt: "Необязательно"
+                        )
+                    }
+
+                    if !draft.isValid {
+                        Text("Заполните название и минимальную сумму. Процент можно оставить пустым.")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+                .padding()
+            }
+            .background(AppTheme.appBackground.ignoresSafeArea())
+            .navigationTitle(isEditing ? "Редактирование карты" : "Новая карта")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Отмена", action: onCancel)
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isEditing ? "Сохранить" : "Создать", action: onSave)
+                        .disabled(!draft.isValid)
+                }
+            }
+        }
+    }
+
+    private var infoSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(draft.categoryType.title)
+                .font(.headline)
+            Text("После сохранения карта появится в списке рядом с системными картами этой категории.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .padding()
+        .background(AppTheme.panelBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func fieldCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 14, content: content)
+            .padding()
+            .background(AppTheme.panelBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func textField(
+        title: String,
+        text: Binding<String>,
+        prompt: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+
+            TextField(prompt, text: text)
+                .textFieldStyle(.roundedBorder)
+        }
+    }
+
+    private func numericField(
+        title: String,
+        text: Binding<String>,
+        prompt: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+
+            TextField(prompt, text: text)
+                .keyboardType(.decimalPad)
+                .textFieldStyle(.roundedBorder)
+        }
     }
 }

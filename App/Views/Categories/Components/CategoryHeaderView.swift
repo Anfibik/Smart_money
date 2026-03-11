@@ -50,7 +50,7 @@ struct CategoryHeaderView: View {
                 Text(categoryRemaining, format: .currency(code: currencyCode))
                     .font(.subheadline.weight(.semibold))
 
-                Text("В банку: \(category.lastIncomeToBankAmount, format: .currency(code: currencyCode))")
+                Text("В свободный капитал: \(category.lastIncomeToBankAmount, format: .currency(code: currencyCode))")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

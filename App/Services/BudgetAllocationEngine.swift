@@ -4,6 +4,7 @@ final class BudgetAllocationEngine {
     private let lowPriorityRaw = 1
     private let mediumPriorityRaw = 2
     private let highPriorityRaw = 3
+
     func applyIncomeDelta(
         _ deltaIncome: Double,
         settings: BudgetSettings,
@@ -66,6 +67,15 @@ final class BudgetAllocationEngine {
     ) {
         guard bankBalance > 0.0001 else { return }
 
+        resolveEmergencyReserveMinimumFromBank(
+            settings: settings,
+            allocatedBySubcategoryID: &allocatedBySubcategoryID,
+            bankBalance: &bankBalance,
+            lastBankAutoDistributedBySubcategoryID: &lastBankAutoDistributedBySubcategoryID,
+            trackAutoDistribution: trackAutoDistribution
+        )
+        guard bankBalance > 0.0001 else { return }
+
         var remainingBankAmount = bankBalance
         let needs = minimumDeficitNeeds(
             settings: settings,
@@ -114,6 +124,33 @@ final class BudgetAllocationEngine {
         }
 
         bankBalance = max(0, remainingBankAmount)
+    }
+
+    func resolveEmergencyReserveMinimumFromBank(
+        settings: BudgetSettings,
+        allocatedBySubcategoryID: inout [UUID: Double],
+        bankBalance: inout Double,
+        lastBankAutoDistributedBySubcategoryID: inout [UUID: Double],
+        trackAutoDistribution: Bool
+    ) {
+        guard bankBalance > 0.0001 else { return }
+        guard let emergencyReserve = emergencyReserveSubcategory(in: settings) else { return }
+
+        let minimumTarget = minimumFloorForRebalance(for: emergencyReserve)
+        guard minimumTarget > 0 else { return }
+
+        let allocated = allocatedBySubcategoryID[emergencyReserve.id, default: 0]
+        let remaining = max(0, allocated - emergencyReserve.spentAmount)
+        let missingAmount = max(0, minimumTarget - remaining)
+        guard missingAmount > 0.0001 else { return }
+
+        let transferred = min(bankBalance, missingAmount)
+        allocatedBySubcategoryID[emergencyReserve.id, default: 0] += transferred
+        bankBalance -= transferred
+
+        if trackAutoDistribution {
+            lastBankAutoDistributedBySubcategoryID[emergencyReserve.id, default: 0] += transferred
+        }
     }
 
     func rebalanceForNewSubcategoryMinimum(
@@ -400,6 +437,13 @@ final class BudgetAllocationEngine {
         if rawPriority == highPriorityRaw { return highPriorityRaw }
         if rawPriority == mediumPriorityRaw { return mediumPriorityRaw }
         return lowPriorityRaw
+    }
+
+    private func emergencyReserveSubcategory(in settings: BudgetSettings) -> Subcategory? {
+        settings.categories
+            .first(where: { $0.type == .savings })?
+            .subcategories
+            .first(where: { $0.name == "Подушка" })
     }
 
     private func maxCap(for subcategory: Subcategory) -> Double {

@@ -10,6 +10,12 @@ struct SubcategoryCardView: View {
     @State private var isDetailSideVisible = false
     @State private var suppressSingleTapAfterDoubleTap = false
 
+    private enum CardState {
+        case normal
+        case deficit
+        case negative
+    }
+
     var body: some View {
         ZStack {
             compactSide
@@ -49,12 +55,7 @@ struct SubcategoryCardView: View {
 
     private var compactSide: some View {
         VStack(spacing: 0) {
-            Text(subcategory.name)
-                .font(.caption.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .allowsTightening(true)
-                .frame(maxWidth: .infinity, alignment: .center)
+            titleRow(alignment: .center)
                 .padding(.top, 6)
 
             Spacer(minLength: 4)
@@ -80,12 +81,8 @@ struct SubcategoryCardView: View {
 
     private var detailSide: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top, spacing: 6) {
-                Text(subcategory.name)
-                    .font(.caption.weight(.semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .allowsTightening(true)
+            HStack(alignment: .top, spacing: 8) {
+                titleRow(alignment: .leading)
 
                 Spacer(minLength: 4)
 
@@ -110,12 +107,57 @@ struct SubcategoryCardView: View {
 
             Text("Дефицит: -\(subcategory.deficitAmount, format: .currency(code: currencyCode))")
                 .font(.caption2)
-                .foregroundColor(subcategory.deficitAmount > 0 ? .red : .secondary)
+                .foregroundStyle(statusColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
         .padding(8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func titleRow(alignment: HorizontalAlignment) -> some View {
+        HStack(spacing: 6) {
+            if state != .normal {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 7, height: 7)
+            }
+
+            Text(subcategory.name)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(statusColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .allowsTightening(true)
+        }
+        .frame(maxWidth: .infinity, alignment: alignment == .center ? .center : .leading)
+    }
+
+    private var state: CardState {
+        if rawBalance < -0.01 {
+            return .negative
+        }
+
+        if subcategory.deficitAmount > 0.01 {
+            return .deficit
+        }
+
+        return .normal
+    }
+
+    private var rawBalance: Double {
+        subcategory.allocatedAmount - subcategory.spentAmount
+    }
+
+    private var statusColor: Color {
+        switch state {
+        case .normal:
+            return .primary
+        case .deficit:
+            return .orange
+        case .negative:
+            return .red
+        }
     }
 
     private func formattedPercent(_ value: Double) -> String {

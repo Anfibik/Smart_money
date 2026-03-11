@@ -88,7 +88,7 @@ struct EditSubcategorySheetView: View {
                         .font(.subheadline)
                         .foregroundColor(availableMoneyForCard > 0 ? .secondary : .red)
 
-                    Text("Из них в банке: \(bankAvailableAmount, format: .currency(code: currencyCode))")
+                    Text("Из них в свободном капитале: \(bankAvailableAmount, format: .currency(code: currencyCode))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -156,7 +156,7 @@ struct EditSubcategorySheetView: View {
                     Divider()
                         .padding(.vertical, 2)
 
-                    Text("Изъятие средств в банку")
+                    Text("Изъятие в свободный капитал")
                         .font(.subheadline.weight(.semibold))
 
                     Text("Текущий остаток: \(currentRemaining, format: .currency(code: currencyCode))")
@@ -188,10 +188,10 @@ struct EditSubcategorySheetView: View {
                     Divider()
                         .padding(.vertical, 2)
 
-                    Text("Пополнение из банки")
+                    Text("Пополнение из свободного капитала")
                         .font(.subheadline.weight(.semibold))
 
-                    Text("Доступно в банке: \(bankAvailableAmount, format: .currency(code: currencyCode))")
+                    Text("Доступно в свободном капитале: \(bankAvailableAmount, format: .currency(code: currencyCode))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -208,12 +208,12 @@ struct EditSubcategorySheetView: View {
                         .textFieldStyle(.roundedBorder)
 
                     if requestedDeposit > maxDepositable, requestedDeposit > 0 {
-                        Text("Сумма слишком большая: пополнение ограничено банкой и максимальным лимитом карточки.")
+                        Text("Сумма слишком большая: пополнение ограничено свободным капиталом и максимальным лимитом карточки.")
                             .font(.caption)
                             .foregroundStyle(.red)
                     }
 
-                    Button("Пополнить из банки", action: onDeposit)
+                    Button("Пополнить из свободного капитала", action: onDeposit)
                         .buttonStyle(.bordered)
                         .disabled(!canDeposit)
 

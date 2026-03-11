@@ -5,6 +5,7 @@ enum BudgetHistoryEventType: String, Codable, CaseIterable, Hashable {
     case expense
     case transferToFreeCapital
     case transferFromFreeCapital
+    case categoryReallocation
 
     var title: String {
         switch self {
@@ -16,6 +17,8 @@ enum BudgetHistoryEventType: String, Codable, CaseIterable, Hashable {
             return "Перевод в Свободный капитал"
         case .transferFromFreeCapital:
             return "Пополнение из Свободного капитала"
+        case .categoryReallocation:
+            return "Внутренний перевод"
         }
     }
 
@@ -29,6 +32,8 @@ enum BudgetHistoryEventType: String, Codable, CaseIterable, Hashable {
             return "arrow.up.right.circle.fill"
         case .transferFromFreeCapital:
             return "arrow.down.left.circle.fill"
+        case .categoryReallocation:
+            return "arrow.left.arrow.right.circle.fill"
         }
     }
 
@@ -36,14 +41,14 @@ enum BudgetHistoryEventType: String, Codable, CaseIterable, Hashable {
         switch self {
         case .income, .expense:
             return true
-        case .transferToFreeCapital, .transferFromFreeCapital:
+        case .transferToFreeCapital, .transferFromFreeCapital, .categoryReallocation:
             return false
         }
     }
 
     var isTransfer: Bool {
         switch self {
-        case .transferToFreeCapital, .transferFromFreeCapital:
+        case .transferToFreeCapital, .transferFromFreeCapital, .categoryReallocation:
             return true
         case .income, .expense:
             return false
@@ -62,6 +67,7 @@ struct BudgetHistoryEvent: Identifiable, Codable, Hashable {
     let subcategoryID: UUID?
     let subcategoryNameSnapshot: String?
     let iconNameSnapshot: String?
+    let counterpartyNameSnapshot: String?
     let affectsStatistics: Bool
 
     init(
@@ -75,6 +81,7 @@ struct BudgetHistoryEvent: Identifiable, Codable, Hashable {
         subcategoryID: UUID? = nil,
         subcategoryNameSnapshot: String? = nil,
         iconNameSnapshot: String? = nil,
+        counterpartyNameSnapshot: String? = nil,
         affectsStatistics: Bool? = nil
     ) {
         self.id = id
@@ -87,6 +94,7 @@ struct BudgetHistoryEvent: Identifiable, Codable, Hashable {
         self.subcategoryID = subcategoryID
         self.subcategoryNameSnapshot = subcategoryNameSnapshot
         self.iconNameSnapshot = iconNameSnapshot
+        self.counterpartyNameSnapshot = counterpartyNameSnapshot
         self.affectsStatistics = affectsStatistics ?? type.affectsStatisticsByDefault
     }
 
@@ -94,7 +102,7 @@ struct BudgetHistoryEvent: Identifiable, Codable, Hashable {
         switch type {
         case .expense:
             return subcategoryNameSnapshot ?? type.title
-        case .income, .transferToFreeCapital, .transferFromFreeCapital:
+        case .income, .transferToFreeCapital, .transferFromFreeCapital, .categoryReallocation:
             return type.title
         }
     }
@@ -107,6 +115,11 @@ struct BudgetHistoryEvent: Identifiable, Codable, Hashable {
             return nil
         case .transferToFreeCapital, .transferFromFreeCapital:
             return subcategoryNameSnapshot
+        case .categoryReallocation:
+            if let from = subcategoryNameSnapshot, let to = counterpartyNameSnapshot {
+                return "\(from) -> \(to)"
+            }
+            return subcategoryNameSnapshot ?? counterpartyNameSnapshot
         }
     }
 
