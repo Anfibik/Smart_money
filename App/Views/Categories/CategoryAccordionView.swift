@@ -301,7 +301,6 @@ struct CategoryAccordionView: View {
             let availableForCard = maxAllowedPercentForEdit(target: target)
             let availableMoneyForCard = maxAllowedMoneyForEdit(target: target)
             let currentRemaining = currentRemainingForEdit(target: target)
-            let minimumLevel = minimumLevelForEdit(target: target)
             let currentMaxLimit = currentMaxLimitForEdit(target: target)
 
             EditSubcategorySheetView(
@@ -311,7 +310,6 @@ struct CategoryAccordionView: View {
                 availableForCard: availableForCard,
                 availableMoneyForCard: availableMoneyForCard,
                 currentRemaining: currentRemaining,
-                minimumLevel: minimumLevel,
                 currentMaxLimit: currentMaxLimit,
                 highPriorityName: highName,
                 mediumPriorityName: mediumName,
@@ -559,8 +557,7 @@ struct CategoryAccordionView: View {
     private func withdrawFromEditedSubcategory(target: EditSubcategoryTarget) {
         let requested = nonNegativeValue(from: withdrawAmountInput)
         let currentRemaining = currentRemainingForEdit(target: target)
-        let minimumLevel = minimumLevelForEdit(target: target)
-        let maxWithdrawable = max(0, currentRemaining - minimumLevel)
+        let maxWithdrawable = currentRemaining
 
         guard requested > 0, requested <= maxWithdrawable + 0.0001 else { return }
 
@@ -679,14 +676,6 @@ struct CategoryAccordionView: View {
             .subcategoryAllocations
             .first(where: { $0.id == target.subcategoryID })?
             .remainingAmount ?? 0
-    }
-
-    private func minimumLevelForEdit(target: EditSubcategoryTarget) -> Double {
-        distribution.categoryAllocations
-            .first(where: { $0.type == target.categoryType })?
-            .subcategoryAllocations
-            .first(where: { $0.id == target.subcategoryID })?
-            .minLimit ?? 0
     }
 
     private func currentMaxLimitForEdit(target: EditSubcategoryTarget) -> Double? {

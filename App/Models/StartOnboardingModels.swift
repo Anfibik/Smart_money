@@ -27,6 +27,7 @@ enum SetupHousingType: String, Codable, CaseIterable, Hashable, Identifiable {
 
 enum StartStrategyType: String, Codable, CaseIterable, Hashable, Identifiable {
     case stability
+    case balance
     case capitalGrowth
 
     var id: String { rawValue }
@@ -35,6 +36,8 @@ enum StartStrategyType: String, Codable, CaseIterable, Hashable, Identifiable {
         switch self {
         case .stability:
             return "Стабильность"
+        case .balance:
+            return "Баланс"
         case .capitalGrowth:
             return "Рост капитала"
         }
@@ -44,6 +47,8 @@ enum StartStrategyType: String, Codable, CaseIterable, Hashable, Identifiable {
         switch self {
         case .stability:
             return "Основные 60% / Желаемые 15% / Накопления 25%"
+        case .balance:
+            return "Основные 55% / Желаемые 20% / Накопления 25%"
         case .capitalGrowth:
             return "Основные 50% / Желаемые 15% / Накопления 35%"
         }
@@ -55,6 +60,12 @@ enum StartStrategyType: String, Codable, CaseIterable, Hashable, Identifiable {
             return [
                 .essentials: 60,
                 .wants: 15,
+                .savings: 25
+            ]
+        case .balance:
+            return [
+                .essentials: 55,
+                .wants: 20,
                 .savings: 25
             ]
         case .capitalGrowth:

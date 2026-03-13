@@ -7,7 +7,6 @@ struct EditSubcategorySheetView: View {
     let availableForCard: Double
     let availableMoneyForCard: Double
     let currentRemaining: Double
-    let minimumLevel: Double
     let currentMaxLimit: Double?
     let highPriorityName: String
     let mediumPriorityName: String
@@ -41,7 +40,7 @@ struct EditSubcategorySheetView: View {
     }
 
     private var maxWithdrawable: Double {
-        max(0, currentRemaining - minimumLevel)
+        max(0, currentRemaining)
     }
 
     private var canWithdraw: Bool {
@@ -163,10 +162,6 @@ struct EditSubcategorySheetView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Text("Минимальный уровень: \(minimumLevel, format: .currency(code: currencyCode))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
                     Text("Можно изъять: \(maxWithdrawable, format: .currency(code: currencyCode))")
                         .font(.caption)
                         .foregroundColor(maxWithdrawable > 0 ? .secondary : .red)
@@ -176,7 +171,7 @@ struct EditSubcategorySheetView: View {
                         .textFieldStyle(.roundedBorder)
 
                     if requestedWithdraw > maxWithdrawable, requestedWithdraw > 0 {
-                        Text("Сумма слишком большая: после изъятия остаток не может быть ниже минимального уровня.")
+                        Text("Сумма слишком большая: нельзя изъять больше текущего остатка карточки.")
                             .font(.caption)
                             .foregroundStyle(.red)
                     }

@@ -209,13 +209,13 @@ struct StartOnboardingBuilder {
         let wantsBudget = budgetsByType[.wants, default: 0]
         let savingsBudget = budgetsByType[.savings, default: 0]
 
-        let housingPercentage = input.housingType == .rented ? 30.0 : 5.0
-        let foodPercentage = 10.0
+        let housingPercentage = input.housingType == .rented ? 30.0 : 10.0
+        let foodPercentage = 20.0
             + (Double(input.adultDependentsCount) * 5.0)
             + (Double(input.childrenCount) * 4.0)
         let healthPercentage = 5.0
-            + (Double(input.adultDependentsCount) * 2.0)
-            + (Double(input.childrenCount) * 3.0)
+        + (Double(input.adultDependentsCount) * 0.5)
+        + (Double(input.childrenCount) * 1.5)
         let childrenPercentage = input.childrenCount > 0 ? 10.0 : nil
         let transportPercentage = input.carsCount > 0 ? 10.0 : nil
         let debtPercentage = input.capital < 0 ? 50.0 : nil
@@ -223,8 +223,8 @@ struct StartOnboardingBuilder {
 
         let housingMin = roundToCents(input.housingCost * 1.10)
         let foodMin = roundToCents(
-            (Double(input.adultsIncludingUserCount) * 9000.0)
-                + (Double(input.childrenCount) * 6000.0)
+            8000.0 * (1.0 + (Double(input.adultDependentsCount) * 0.8))
+                + (Double(input.childrenCount) * 5000.0)
         )
         let healthMin = roundToCents(
             max(
@@ -234,8 +234,8 @@ struct StartOnboardingBuilder {
         )
         let childrenMin = roundToCents(essentialsBudget * ((childrenPercentage ?? 0) / 100.0))
         let transportMin = roundToCents(essentialsBudget * ((transportPercentage ?? 0) / 100.0))
-        let shoppingMin = roundToCents(wantsBudget * 0.30)
-        let hobbyMin = roundToCents(wantsBudget * 0.20)
+        let shoppingMin = roundToCents(max(500.0, wantsBudget * 0.30))
+        let hobbyMin = roundToCents(max(500.0, wantsBudget * 0.20))
         let entertainmentMin = roundToCents(wantsBudget * 0.20)
         let debtMin = roundToCents(max(savingsBudget * 0.50, abs(min(0, input.capital)) / 24.0))
         let creditMin = roundToCents(max(input.creditMonthlyPayment, savingsBudget * 0.10))
@@ -243,6 +243,7 @@ struct StartOnboardingBuilder {
         let mandatoryLivingMonthly = housingMin + foodMin + healthMin + childrenMin + transportMin + debtMin + creditMin
         let emergencyTarget = roundToCents(mandatoryLivingMonthly * 6.0)
         let emergencyMin = emergencyTarget
+        let emergencyMaxLimit = roundToCents(mandatoryLivingMonthly * 12.0)
 
         var categories: [ExpenseCategory] = [
             ExpenseCategory(
@@ -275,6 +276,7 @@ struct StartOnboardingBuilder {
                 percentage: input.strategy.categoryPercentages[.savings, default: 0],
                 subcategories: savingsSubcategories(
                     emergencyMin: emergencyMin,
+                    emergencyMaxLimit: emergencyMaxLimit,
                     debtPercentage: debtPercentage,
                     debtMin: debtMin,
                     creditPercentage: creditPercentage,
@@ -383,6 +385,7 @@ struct StartOnboardingBuilder {
 
     private func savingsSubcategories(
         emergencyMin: Double,
+        emergencyMaxLimit: Double,
         debtPercentage: Double?,
         debtMin: Double,
         creditPercentage: Double?,
@@ -393,6 +396,7 @@ struct StartOnboardingBuilder {
                 name: "Подушка",
                 percentage: 50,
                 minLimit: emergencyMin,
+                maxLimit: emergencyMaxLimit,
                 priority: .medium
             )
         ]
@@ -458,6 +462,7 @@ struct StartOnboardingBuilder {
         name: String,
         percentage: Double,
         minLimit: Double,
+        maxLimit: Double? = nil,
         priority: SubcategoryPriorityLevel
     ) -> Subcategory {
         Subcategory(
@@ -467,7 +472,7 @@ struct StartOnboardingBuilder {
             percentage: percentage,
             fixedMinimumPercentage: nil,
             minLimit: max(0, minLimit),
-            maxLimit: nil,
+            maxLimit: maxLimit.map { max(0, $0) },
             priority: priority.rawValue,
             spentAmount: 0
         )

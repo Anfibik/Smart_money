@@ -300,8 +300,7 @@ final class BudgetViewModel: ObservableObject {
         let allocated = allocatedBySubcategoryID[subcategoryID, default: 0]
         let spent = subcategory.spentAmount
         let remaining = max(0, allocated - spent)
-        let minimumLevel = minimumFloorForRebalance(for: subcategory)
-        let maxWithdrawable = max(0, remaining - minimumLevel)
+        let maxWithdrawable = remaining
 
         guard normalizedAmount <= maxWithdrawable + 0.0001 else { return }
 

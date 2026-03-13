@@ -84,7 +84,7 @@ struct StartOnboardingFlowView: View {
         VStack(alignment: .leading, spacing: 14) {
             fieldCard {
                 inputField(
-                    title: "Средний месячный доход за год",
+                    title: "Средний доход в месяц*",
                     text: $monthlyIncomeInput,
                     prompt: "Например, 120 000"
                 )
@@ -154,8 +154,8 @@ struct StartOnboardingFlowView: View {
     private var customCardsStep: some View {
         VStack(alignment: .leading, spacing: 16) {
             infoCard(
-                title: "Системные карты",
-                text: "Они создаются автоматически и не редактируются на этом этапе. Ниже можно добавить только пользовательские карты. Итоговые суммы и проценты будут посчитаны после выбора стратегии."
+                title: "Категории потребностей",
+                text: "Список основных потребностей, сформированых на основе Ваших данных. Вы можете добавить свои, но общий процент расходов не может привышать 100%."
             )
 
             ForEach(ExpenseCategoryType.allCases, id: \.self) { categoryType in
@@ -169,7 +169,7 @@ struct StartOnboardingFlowView: View {
             }
 
             if !areCustomCardsValid {
-                validationText("Заполните название и минимальную сумму у всех пользовательских карт. Процент можно оставить пустым.")
+                validationText("Название и минимальная сумма обязательны для заполнения")
             }
         }
     }
@@ -291,20 +291,20 @@ struct StartOnboardingFlowView: View {
                 .font(.headline)
 
             metricRow("Стратегия", strategy.title)
-            metricRow("Обязательные минимумы в месяц", preview.configuration.monthlyMinimumExcludingEmergency, isCurrency: true)
+            metricRow("Минимальная сумма в месяц для проживания", preview.configuration.monthlyMinimumExcludingEmergency, isCurrency: true)
             metricRow("Базовые расходы на жизнь", preview.configuration.mandatoryLivingMonthly, isCurrency: true)
-            metricRow("Цель подушки", preview.configuration.emergencyTarget, isCurrency: true)
-            metricRow("Стартовый капитал, ушедший в минимумы", preview.configuration.capitalAppliedToMinimums, isCurrency: true)
-            metricRow("Свободный капитал после запуска", preview.configuration.remainingFreeCapital, isCurrency: true)
+            metricRow("Величина финансовой подушки", preview.configuration.emergencyTarget, isCurrency: true)
+            metricRow("Данная сумма взята из вашего капитала, так как ежемесячного дохода не хватает для покрытия минимальной потребности", preview.configuration.capitalAppliedToMinimums, isCurrency: true)
+            metricRow("\"Свободный капитал\" - остаток от вашего капитала после распределения дефицитов", preview.configuration.remainingFreeCapital, isCurrency: true)
 
             if let months = preview.configuration.freeCapitalCoverageMonths {
-                metricRow("Хватит без подушки", "\(String(format: "%.2f", months)) мес.")
+                metricRow("Хватит свободного капитала на:", "\(String(format: "%.2f", months)) мес.")
             } else {
-                metricRow("Хватит без подушки", "Не определяется")
+                metricRow("Срок проживания в месяцах на свободном капитале", "Не определяется")
             }
 
             if preview.configuration.totalDeficit > 0.01 {
-                metricRow("Остаточный дефицит", preview.configuration.totalDeficit, isCurrency: true, color: .red)
+                metricRow("Дефицит денег для покрытия минимального проживания", preview.configuration.totalDeficit, isCurrency: true, color: .red)
             }
         }
         .padding()
@@ -526,7 +526,7 @@ struct StartOnboardingFlowView: View {
         case 2:
             return "Семья и обязательства"
         case 3:
-            return "Карты по умолчанию и свои карты"
+            return "Карты потребностей"
         case 4:
             return "Выбор стратегии"
         default:
@@ -537,15 +537,15 @@ struct StartOnboardingFlowView: View {
     private var stepDescription: String {
         switch currentStep {
         case 1:
-            return "Собираем базовые данные для стартового бюджета."
+            return "Введи данные для распределения стартового бюджета на потребности."
         case 2:
-            return "Учитываем состав семьи, детей и кредитные платежи."
+            return "Состав семьи, детей и дополнительные платежи."
         case 3:
-            return "Показываем системные карты и даем добавить пользовательские."
+            return "Список финальных потребностей."
         case 4:
-            return "Определяем месячное распределение по категориям."
+            return "Выбери стратегию своего бюджета."
         default:
-            return "Проверяем итоговые минимумы, свободный капитал и дефициты."
+            return "Итоговые данные."
         }
     }
 
@@ -802,7 +802,7 @@ private struct CustomCardSheetView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(draft.categoryType.title)
                 .font(.headline)
-            Text("После сохранения карта появится в списке рядом с системными картами этой категории.")
+            Text("Сохраните для добавления потребности в категорию.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
