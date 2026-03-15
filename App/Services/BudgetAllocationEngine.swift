@@ -443,7 +443,7 @@ final class BudgetAllocationEngine {
         settings.categories
             .first(where: { $0.type == .savings })?
             .subcategories
-            .first(where: { $0.name == "Подушка" })
+            .first(where: { $0.systemKey == .emergencyFund })
     }
 
     private func maxCap(for subcategory: Subcategory) -> Double {

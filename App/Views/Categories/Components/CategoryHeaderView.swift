@@ -47,10 +47,10 @@ struct CategoryHeaderView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Text(categoryRemaining, format: .currency(code: currencyCode))
+                Text(currency(categoryRemaining))
                     .font(.subheadline.weight(.semibold))
 
-                Text("В свободный капитал: \(category.lastIncomeToBankAmount, format: .currency(code: currencyCode))")
+                Text("В свободный капитал: \(currency(category.lastIncomeToBankAmount))")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -58,15 +58,15 @@ struct CategoryHeaderView: View {
             Spacer(minLength: 8)
 
             VStack(alignment: .trailing, spacing: 6) {
-                Text("+ \(categoryLastIncome, format: .currency(code: currencyCode))")
+                Text("+ \(currency(categoryLastIncome))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Text("- \(categorySpent, format: .currency(code: currencyCode))")
+                Text("- \(currency(categorySpent))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Text("Дефицит: -\(category.deficitAmount, format: .currency(code: currencyCode))")
+                Text("Дефицит: -\(currency(category.deficitAmount))")
                     .font(.caption)
                     .foregroundColor(category.deficitAmount > 0 ? .red : .secondary)
             }
@@ -78,6 +78,10 @@ struct CategoryHeaderView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
+    }
+
+    private func currency(_ value: Double) -> String {
+        AppCurrencyFormatter.string(value, currencyCode: currencyCode)
     }
 }
 

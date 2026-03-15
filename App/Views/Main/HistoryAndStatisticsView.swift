@@ -449,7 +449,7 @@ struct HistoryAndStatisticsView: View {
     }
 
     private func currency(_ value: Double) -> String {
-        value.formatted(.currency(code: viewModel.currencyCode))
+        AppCurrencyFormatter.string(value, currencyCode: viewModel.currencyCode)
     }
 
     private func percentageText(_ share: Double) -> String {

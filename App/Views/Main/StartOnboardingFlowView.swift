@@ -8,9 +8,11 @@ struct StartOnboardingFlowView: View {
     @State private var capitalInput = ""
     @State private var housingType: SetupHousingType = .rented
     @State private var housingCostInput = ""
-    @State private var carsCount = 0
+    @State private var hasCar = false
     @State private var dependentsCount = 0
+    @State private var elderlyDependentsCount = 0
     @State private var childrenCount = 0
+    @State private var petsCount = 0
     @State private var hasCredit = false
     @State private var creditPaymentInput = ""
     @State private var strategy: StartStrategyType = .stability
@@ -37,9 +39,9 @@ struct StartOnboardingFlowView: View {
                         case 2:
                             familyStep
                         case 3:
-                            customCardsStep
-                        case 4:
                             strategyStep
+                        case 4:
+                            customCardsStep
                         default:
                             summaryStep
                         }
@@ -90,7 +92,7 @@ struct StartOnboardingFlowView: View {
                 )
 
                 inputField(
-                    title: "Свободный капитал*",
+                    title: "Накопленный капитал*",
                     text: $capitalInput,
                     prompt: "Можно отрицательное значение"
                 )
@@ -112,8 +114,6 @@ struct StartOnboardingFlowView: View {
                     text: $housingCostInput,
                     prompt: "Ежемесячная сумма"
                 )
-
-                Stepper("Количество авто: \(carsCount)", value: $carsCount, in: 0...10)
             }
 
             if !isStepOneValid {
@@ -127,7 +127,13 @@ struct StartOnboardingFlowView: View {
             fieldCard {
                 Stepper("Количество взрослых иждивенцев: \(dependentsCount)", value: $dependentsCount, in: 0...12)
 
-                Stepper("Количество детей до 16 лет: \(childrenCount)", value: $childrenCount, in: 0...12)
+                Stepper("Количество иждивенцев стариков: \(elderlyDependentsCount)", value: $elderlyDependentsCount, in: 0...12)
+
+                Stepper("Количество детей до 12 лет: \(childrenCount)", value: $childrenCount, in: 0...12)
+
+                Stepper("Количество домашних животных: \(petsCount)", value: $petsCount, in: 0...12)
+
+                Toggle("Есть авто", isOn: $hasCar)
 
                 Toggle("Есть кредит", isOn: $hasCredit)
 
@@ -153,19 +159,14 @@ struct StartOnboardingFlowView: View {
 
     private var customCardsStep: some View {
         VStack(alignment: .leading, spacing: 16) {
-            infoCard(
-                title: "Категории потребностей",
-                text: "Список основных потребностей, сформированых на основе Ваших данных. Вы можете добавить свои, но общий процент расходов не может привышать 100%."
-            )
-
-            ForEach(ExpenseCategoryType.allCases, id: \.self) { categoryType in
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(categoryType.title)
-                        .font(.headline)
-
-                    systemCardsBlock(for: categoryType)
-                    customCardsBlock(for: categoryType)
+            if let preview {
+                ForEach(preview.configuration.categoryBudgets) { budget in
+                    if let allocation = preview.distribution.categoryAllocations.first(where: { $0.type == budget.type }) {
+                        onboardingCategorySection(budget: budget, allocation: allocation)
+                    }
                 }
+            } else {
+                validationText("Не удалось рассчитать карты потребностей. Проверьте введенные значения.")
             }
 
             if !areCustomCardsValid {
@@ -221,58 +222,6 @@ struct StartOnboardingFlowView: View {
                             Text("• \(warning)")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding()
-                    .background(AppTheme.panelBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-                }
-
-                ForEach(preview.configuration.categoryBudgets) { budget in
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text(budget.type.title)
-                                .font(.headline)
-                            Spacer()
-                            Text("\(budget.percentage, specifier: "%.0f")%")
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Text("\(budget.monthlyAmount, format: .currency(code: "UAH")) в месяц")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-
-                        if let allocation = preview.distribution.categoryAllocations.first(where: { $0.type == budget.type }) {
-                            ForEach(allocation.subcategoryAllocations) { subcategory in
-                                HStack(alignment: .top, spacing: 12) {
-                                    Image(systemName: subcategory.iconName)
-                                        .frame(width: 24)
-                                        .foregroundStyle(subcategory.isSystem ? .primary : .secondary)
-
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(subcategory.name)
-                                            .font(.subheadline.weight(.medium))
-
-                                        Text("Мин.: \((subcategory.minLimit ?? 0), format: .currency(code: "UAH"))")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-
-                                        Text("Базовый процент: \(subcategory.basePercentage, specifier: "%.2f")%")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-
-                                        if subcategory.deficitAmount > 0.01 {
-                                            Text("Дефицит: \(subcategory.deficitAmount, format: .currency(code: "UAH"))")
-                                                .font(.caption)
-                                                .foregroundStyle(.red)
-                                        }
-                                    }
-
-                                    Spacer()
-                                }
-                                .padding(.vertical, 4)
-                            }
                         }
                     }
                     .padding()
@@ -338,7 +287,7 @@ struct StartOnboardingFlowView: View {
                 .font(.subheadline)
             Spacer()
             if isCurrency {
-                Text(value, format: .currency(code: "UAH"))
+                Text(currency(value))
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(color)
             } else {
@@ -349,104 +298,124 @@ struct StartOnboardingFlowView: View {
         }
     }
 
-    private func systemCardsBlock(for categoryType: ExpenseCategoryType) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(systemCards(for: categoryType)) { card in
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: card.iconName)
-                        .frame(width: 24)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(card.name)
-                            .font(.subheadline.weight(.medium))
-                        if let note = card.note {
-                            Text(note)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Spacer()
-                }
-                .padding(12)
-                .background(AppTheme.panelBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-            }
-        }
-    }
-
-    private func customCardsBlock(for categoryType: ExpenseCategoryType) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            let indices = customCardIndices(for: categoryType)
-
-            if indices.isEmpty {
-                Text("Пользовательских карт пока нет.")
-                    .font(.caption)
+    private func onboardingCategorySection(
+        budget: StartCategoryBudget,
+        allocation: CategoryAllocation
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(budget.type.title)
+                    .font(.headline)
+                Spacer()
+                Text("\(budget.percentage, specifier: "%.0f")%")
+                    .font(.subheadline.weight(.medium))
                     .foregroundStyle(.secondary)
-            } else {
-                ForEach(indices, id: \.self) { index in
-                    customCardRow(index: index)
+            }
+
+            Text("\(currency(budget.monthlyAmount)) в месяц")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            Text("Общий базовый процент категории: \(categoryBasePercentage(for: allocation), specifier: "%.2f")%")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(allocation.subcategoryAllocations) { subcategory in
+                    onboardingSubcategoryCard(subcategory)
                 }
             }
 
             Button {
-                presentNewCustomCardSheet(for: categoryType)
+                presentNewCustomCardSheet(for: budget.type)
             } label: {
                 Label("Добавить карту", systemImage: "plus.circle.fill")
             }
             .buttonStyle(.bordered)
         }
-    }
-
-    private func customCardRow(index: Int) -> some View {
-        let card = customCards[index]
-
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Image(systemName: card.iconName)
-                    .frame(width: 24)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(card.name)
-                        .font(.subheadline.weight(.medium))
-
-                    Text("Минимум: \(parsedDouble(card.minInput), format: .currency(code: "UAH"))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    if card.percentageInput.isEmpty {
-                        Text("Процент: будет рассчитан от минимума")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("Процент: \(parsedDouble(card.percentageInput), specifier: "%.2f")%")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Spacer()
-
-                HStack(spacing: 12) {
-                    Button {
-                        presentEditCustomCardSheet(for: card.id)
-                    } label: {
-                        Image(systemName: "pencil")
-                    }
-                    .buttonStyle(.plain)
-
-                    Button(role: .destructive) {
-                        customCards.remove(at: index)
-                    } label: {
-                        Image(systemName: "trash")
-                    }
-                    .buttonStyle(.plain)
-                }
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            }
-        }
         .padding()
         .background(AppTheme.panelBackground)
         .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func onboardingSubcategoryCard(_ subcategory: SubcategoryAllocation) -> some View {
+        let currentMinimumAmount = currentMinimumAmount(for: subcategory)
+        let deficitColor: Color = subcategory.deficitAmount > 0.01 ? .orange : .secondary
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: subcategory.iconName)
+                    .frame(width: 24)
+                    .foregroundStyle(subcategory.isSystem ? .primary : .secondary)
+
+                Text(subcategory.name)
+                    .font(.subheadline.weight(.medium))
+
+                Spacer()
+
+                if !subcategory.isSystem {
+                    HStack(spacing: 12) {
+                        Button {
+                            presentEditCustomCardSheet(for: subcategory.id)
+                        } label: {
+                            Image(systemName: "pencil")
+                        }
+                        .buttonStyle(.plain)
+
+                        Button(role: .destructive) {
+                            removeCustomCard(id: subcategory.id)
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Базовые параметры")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                onboardingParameterRow("Мин. сумма", currency(subcategory.minLimit ?? 0))
+                onboardingParameterRow("Макс. сумма", maxLimitText(for: subcategory))
+                onboardingParameterRow("Плановый процент", percentText(subcategory.basePercentage))
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Текущие параметры")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                onboardingParameterRow("Текущая мин. сумма", currency(currentMinimumAmount))
+                onboardingParameterRow("Текущий процент от категории", percentText(subcategory.percentage))
+                onboardingParameterRow("Дефицит", currency(subcategory.deficitAmount), valueColor: deficitColor)
+            }
+        }
+        .padding()
+        .background(AppTheme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func onboardingParameterRow(
+        _ title: String,
+        _ value: String,
+        valueColor: Color = .secondary
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 12)
+            Text(value)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(valueColor)
+                .multilineTextAlignment(.trailing)
+        }
     }
 
     private var footer: some View {
@@ -526,9 +495,9 @@ struct StartOnboardingFlowView: View {
         case 2:
             return "Семья и обязательства"
         case 3:
-            return "Карты потребностей"
-        case 4:
             return "Выбор стратегии"
+        case 4:
+            return "Карты потребностей"
         default:
             return "Итоговая конфигурация"
         }
@@ -539,11 +508,11 @@ struct StartOnboardingFlowView: View {
         case 1:
             return "Введи данные для распределения стартового бюджета на потребности."
         case 2:
-            return "Состав семьи, детей и дополнительные платежи."
+            return "Состав семьи, дети до 12 лет, старики и дополнительные платежи."
         case 3:
-            return "Список финальных потребностей."
-        case 4:
             return "Выбери стратегию своего бюджета."
+        case 4:
+            return "Проверь финальные карты потребностей и при необходимости добавь свои."
         default:
             return "Итоговые данные."
         }
@@ -593,9 +562,9 @@ struct StartOnboardingFlowView: View {
         case 2:
             return isStepTwoValid
         case 3:
-            return areCustomCardsValid
-        case 4:
             return true
+        case 4:
+            return areCustomCardsValid
         default:
             return preview != nil
         }
@@ -612,9 +581,11 @@ struct StartOnboardingFlowView: View {
             capital: parsedDouble(capitalInput),
             housingType: housingType,
             housingCost: parsedDouble(housingCostInput),
-            carsCount: carsCount,
+            hasCar: hasCar,
             dependentsCount: dependentsCount,
+            elderlyDependentsCount: elderlyDependentsCount,
             childrenCount: childrenCount,
+            petsCount: petsCount,
             hasCredit: hasCredit,
             creditMonthlyPayment: parsedDouble(creditPaymentInput),
             strategy: strategy,
@@ -633,21 +604,6 @@ struct StartOnboardingFlowView: View {
                 )
             }
         )
-    }
-
-    private func systemCards(for categoryType: ExpenseCategoryType) -> [StartSystemCardDescriptor] {
-        StartOnboardingBuilder.systemCardDescriptors(
-            housingType: housingType,
-            carsCount: carsCount,
-            childrenCount: childrenCount,
-            capital: parsedDouble(capitalInput),
-            hasCredit: hasCredit
-        )
-        .filter { $0.categoryType == categoryType }
-    }
-
-    private func customCardIndices(for categoryType: ExpenseCategoryType) -> [Int] {
-        customCards.indices.filter { customCards[$0].categoryType == categoryType }
     }
 
     private func presentNewCustomCardSheet(for categoryType: ExpenseCategoryType) {
@@ -679,6 +635,11 @@ struct StartOnboardingFlowView: View {
         dismissCustomCardSheet()
     }
 
+    private func removeCustomCard(id: UUID) {
+        guard let index = customCards.firstIndex(where: { $0.id == id }) else { return }
+        customCards.remove(at: index)
+    }
+
     private func dismissCustomCardSheet() {
         isCustomCardSheetPresented = false
     }
@@ -692,6 +653,32 @@ struct StartOnboardingFlowView: View {
             .replacingOccurrences(of: " ", with: "")
             .replacingOccurrences(of: ",", with: ".")
         return Double(normalized) ?? 0
+    }
+
+    private func currency(_ value: Double) -> String {
+        AppCurrencyFormatter.string(value, currencyCode: "UAH")
+    }
+
+    private func categoryBasePercentage(for allocation: CategoryAllocation) -> Double {
+        allocation.subcategoryAllocations.reduce(0) { partialResult, subcategory in
+            partialResult + subcategory.basePercentage
+        }
+    }
+
+    private func currentMinimumAmount(for subcategory: SubcategoryAllocation) -> Double {
+        let minimum = max(0, subcategory.minLimit ?? 0)
+        return max(0, minimum - max(0, subcategory.deficitAmount))
+    }
+
+    private func maxLimitText(for subcategory: SubcategoryAllocation) -> String {
+        guard let maxLimit = subcategory.maxLimit, maxLimit > 0 else {
+            return "Не задана"
+        }
+        return currency(maxLimit)
+    }
+
+    private func percentText(_ value: Double) -> String {
+        "\(String(format: "%.2f", value))%"
     }
 }
 

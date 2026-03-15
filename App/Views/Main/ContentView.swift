@@ -43,6 +43,13 @@ struct ContentView: View {
                                         amount: amount
                                     )
                                 },
+                                expenseAutomaticBankCoverageAmount: { categoryType, subcategoryID, amount in
+                                    budgetViewModel.expenseAutomaticBankCoverageAmount(
+                                        categoryType: categoryType,
+                                        subcategoryID: subcategoryID,
+                                        amount: amount
+                                    )
+                                },
                                 onPayExpenseWithAutomaticForcedCoverage: { categoryType, subcategoryID, amount in
                                     budgetViewModel.addExpenseWithAutomaticForcedCoverage(
                                         categoryType: categoryType,

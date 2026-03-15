@@ -121,4 +121,36 @@ final class BudgetAllocationEngineTests: XCTestCase {
         XCTAssertEqual(allocated[donorLow.id, default: 0], 50, accuracy: 0.0001)
         XCTAssertEqual(allocated[donorHigh.id, default: 0], 100, accuracy: 0.0001)
     }
+
+    func testEmergencyReserveLookupUsesSystemKeyNotDisplayName() {
+        let engine = BudgetAllocationEngine()
+        let renamedEmergencyFund = Subcategory(
+            name: "Фонд безопасности",
+            isSystem: true,
+            systemKey: .emergencyFund,
+            percentage: 100,
+            minLimit: 100,
+            priority: 3
+        )
+        let settings = BudgetSettings(
+            categories: [ExpenseCategory(type: .savings, percentage: 100, subcategories: [renamedEmergencyFund])],
+            currencyCode: "UAH"
+        )
+
+        var allocated: [UUID: Double] = [renamedEmergencyFund.id: 0]
+        var bank: Double = 100
+        var distributed: [UUID: Double] = [:]
+
+        engine.resolveEmergencyReserveMinimumFromBank(
+            settings: settings,
+            allocatedBySubcategoryID: &allocated,
+            bankBalance: &bank,
+            lastBankAutoDistributedBySubcategoryID: &distributed,
+            trackAutoDistribution: true
+        )
+
+        XCTAssertEqual(allocated[renamedEmergencyFund.id, default: 0], 100, accuracy: 0.0001)
+        XCTAssertEqual(bank, 0, accuracy: 0.0001)
+        XCTAssertEqual(distributed[renamedEmergencyFund.id, default: 0], 100, accuracy: 0.0001)
+    }
 }

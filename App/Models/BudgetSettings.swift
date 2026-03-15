@@ -26,28 +26,49 @@ struct BudgetSettings: Codable, Hashable {
             percentage: 60,
             subcategories: [
                 Subcategory(
-                    name: "Жилье",
+                    name: SystemSubcategoryKey.housing.defaultName,
                     isSystem: true,
-                    iconName: "house.fill",
+                    systemKey: .housing,
+                    iconName: SystemSubcategoryKey.housing.defaultIconName,
                     percentage: 30,
                     minLimit: 0,
                     priority: 3
                 ),
                 Subcategory(
-                    name: "Питание",
+                    name: SystemSubcategoryKey.food.defaultName,
                     isSystem: true,
-                    iconName: "fork.knife",
+                    systemKey: .food,
+                    iconName: SystemSubcategoryKey.food.defaultIconName,
                     percentage: 10,
                     minLimit: 0,
-                    priority: 3
+                    priority: 2
                 ),
                 Subcategory(
-                    name: "Здоровье",
+                    name: SystemSubcategoryKey.health.defaultName,
                     isSystem: true,
-                    iconName: "cross.case.fill",
+                    systemKey: .health,
+                    iconName: SystemSubcategoryKey.health.defaultIconName,
                     percentage: 5,
                     minLimit: 0,
-                    priority: 3
+                    priority: 2
+                ),
+                Subcategory(
+                    name: SystemSubcategoryKey.hygiene.defaultName,
+                    isSystem: true,
+                    systemKey: .hygiene,
+                    iconName: SystemSubcategoryKey.hygiene.defaultIconName,
+                    percentage: 5,
+                    minLimit: 500,
+                    priority: 2
+                ),
+                Subcategory(
+                    name: SystemSubcategoryKey.transport.defaultName,
+                    isSystem: true,
+                    systemKey: .transport,
+                    iconName: "tram.fill",
+                    percentage: 10,
+                    minLimit: 1000,
+                    priority: 2
                 ),
             ]
         ),
@@ -57,28 +78,58 @@ struct BudgetSettings: Codable, Hashable {
             percentage: 15,
             subcategories: [
                 Subcategory(
-                    name: "Шопинг",
+                    name: SystemSubcategoryKey.shopping.defaultName,
                     isSystem: true,
-                    iconName: "cart.fill",
+                    systemKey: .shopping,
+                    iconName: SystemSubcategoryKey.shopping.defaultIconName,
                     percentage: 30,
                     minLimit: 0,
-                    priority: 1
+                    priority: 3
                 ),
                 Subcategory(
-                    name: "Хобби",
+                    name: SystemSubcategoryKey.hobby.defaultName,
                     isSystem: true,
-                    iconName: "gamecontroller.fill",
+                    systemKey: .hobby,
+                    iconName: SystemSubcategoryKey.hobby.defaultIconName,
                     percentage: 20,
                     minLimit: 0,
-                    priority: 1
+                    priority: 2
                 ),
                 Subcategory(
-                    name: "Развлечения",
+                    name: SystemSubcategoryKey.entertainment.defaultName,
                     isSystem: true,
-                    iconName: "sparkles",
+                    systemKey: .entertainment,
+                    iconName: SystemSubcategoryKey.entertainment.defaultIconName,
                     percentage: 20,
                     minLimit: 0,
-                    priority: 1
+                    priority: 2
+                ),
+                Subcategory(
+                    name: SystemSubcategoryKey.travel.defaultName,
+                    isSystem: true,
+                    systemKey: .travel,
+                    iconName: SystemSubcategoryKey.travel.defaultIconName,
+                    percentage: 10,
+                    minLimit: 1000,
+                    priority: 2
+                ),
+                Subcategory(
+                    name: SystemSubcategoryKey.gifts.defaultName,
+                    isSystem: true,
+                    systemKey: .gifts,
+                    iconName: SystemSubcategoryKey.gifts.defaultIconName,
+                    percentage: 5,
+                    minLimit: 200,
+                    priority: 2
+                ),
+                Subcategory(
+                    name: SystemSubcategoryKey.sport.defaultName,
+                    isSystem: true,
+                    systemKey: .sport,
+                    iconName: SystemSubcategoryKey.sport.defaultIconName,
+                    percentage: 5,
+                    minLimit: 500,
+                    priority: 2
                 ),
             ]
         ),
@@ -88,12 +139,13 @@ struct BudgetSettings: Codable, Hashable {
             percentage: 25,
             subcategories: [
                 Subcategory(
-                    name: "Подушка",
+                    name: SystemSubcategoryKey.emergencyFund.defaultName,
                     isSystem: true,
-                    iconName: "shield.fill",
+                    systemKey: .emergencyFund,
+                    iconName: SystemSubcategoryKey.emergencyFund.defaultIconName,
                     percentage: 50,
                     minLimit: 0,
-                    priority: 2
+                    priority: 3
                 ),
 
             ]

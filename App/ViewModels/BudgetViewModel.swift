@@ -52,10 +52,13 @@ final class BudgetViewModel: ObservableObject {
     private var categoryTargetBaselineByID: [UUID: Double] = [:]
     private var lastIncomeToBankByCategoryID: [UUID: Double] = [:]
     private var lastBankAutoDistributedBySubcategoryID: [UUID: Double] = [:]
+    private var monthlyIncomeBySubcategoryID: [UUID: Double] = [:]
+    private var monthlyTrackingMonthKey: String = ""
     private var bankBalance: Double = 0
     private let persistenceService: PersistenceService
     private let allocationEngine: BudgetAllocationEngine
     private let historyStorage: BudgetHistoryStorage
+    private let calendar = Calendar.current
 
     init(
         income: Double,
@@ -77,10 +80,12 @@ final class BudgetViewModel: ObservableObject {
             lastBankAutoDistributions: []
         )
 
+        normalizePriorityRules()
         syncAllocationStorageWithSettings()
         syncTargetBaselineStorageWithSettings()
         syncLastIncomeToBankStorageWithSettings()
         syncLastBankAutoDistributionStorageWithSettings()
+        syncMonthlyIncomeStorageWithSettings()
         if let persistedState = persistenceService.loadBudgetState() {
             restoreFromPersistedState(persistedState)
             recalculate()
@@ -111,6 +116,7 @@ final class BudgetViewModel: ObservableObject {
     }
 
     func recalculate() {
+        rolloverMonthlyTrackingIfNeeded()
         distribution = buildDistribution()
         persistCurrentState()
     }
@@ -125,10 +131,13 @@ final class BudgetViewModel: ObservableObject {
         categoryTargetBaselineByID = [:]
         lastIncomeToBankByCategoryID = [:]
         lastBankAutoDistributedBySubcategoryID = [:]
+        monthlyIncomeBySubcategoryID = [:]
+        monthlyTrackingMonthKey = Self.makeMonthKey()
         syncAllocationStorageWithSettings()
         syncTargetBaselineStorageWithSettings()
         syncLastIncomeToBankStorageWithSettings()
         syncLastBankAutoDistributionStorageWithSettings()
+        syncMonthlyIncomeStorageWithSettings()
         if normalized > 0 {
             income = normalized
             applyIncomeDelta(normalized)
@@ -147,6 +156,7 @@ final class BudgetViewModel: ObservableObject {
         lastBankAutoDistributedBySubcategoryID = [:]
         syncLastIncomeToBankStorageWithSettings()
         syncLastBankAutoDistributionStorageWithSettings()
+        syncMonthlyIncomeStorageWithSettings()
         applyIncomeDelta(normalized)
         appendHistoryEvent(
             BudgetHistoryEvent(
@@ -167,6 +177,8 @@ final class BudgetViewModel: ObservableObject {
         categoryTargetBaselineByID = [:]
         lastIncomeToBankByCategoryID = [:]
         lastBankAutoDistributedBySubcategoryID = [:]
+        monthlyIncomeBySubcategoryID = [:]
+        monthlyTrackingMonthKey = Self.makeMonthKey()
 
         for categoryIndex in settings.categories.indices {
             for subcategoryIndex in settings.categories[categoryIndex].subcategories.indices {
@@ -178,6 +190,7 @@ final class BudgetViewModel: ObservableObject {
         syncTargetBaselineStorageWithSettings()
         syncLastIncomeToBankStorageWithSettings()
         syncLastBankAutoDistributionStorageWithSettings()
+        syncMonthlyIncomeStorageWithSettings()
 
         clearHistory()
         persistenceService.clearBudgetState()
@@ -191,10 +204,12 @@ final class BudgetViewModel: ObservableObject {
 
     func updateSettings(_ newSettings: BudgetSettings) {
         settings = newSettings
+        normalizePriorityRules()
         syncAllocationStorageWithSettings()
         syncTargetBaselineStorageWithSettings()
         syncLastIncomeToBankStorageWithSettings()
         syncLastBankAutoDistributionStorageWithSettings()
+        syncMonthlyIncomeStorageWithSettings()
         recalculate()
     }
 
@@ -252,6 +267,31 @@ final class BudgetViewModel: ObservableObject {
             bankContributionAmount: roundToCents(bankContribution),
             candidates: candidates
         )
+    }
+
+    func expenseAutomaticBankCoverageAmount(
+        categoryType: ExpenseCategoryType,
+        subcategoryID: UUID,
+        amount: Double
+    ) -> Double {
+        let normalizedAmount = max(0, amount)
+        guard normalizedAmount > 0 else { return 0 }
+        guard let categoryIndex = settings.categories.firstIndex(where: { $0.type == categoryType }) else { return 0 }
+        guard let subcategoryIndex = settings.categories[categoryIndex].subcategories.firstIndex(where: { $0.id == subcategoryID }) else { return 0 }
+
+        let category = settings.categories[categoryIndex]
+        let target = category.subcategories[subcategoryIndex]
+        let targetRemaining = availableBalance(for: target)
+        let automaticCategoryAmount = automaticCategoryCoverageAmount(
+            in: category,
+            excluding: subcategoryID
+        )
+        let bankContribution = min(
+            bankAvailableAmount,
+            max(0, normalizedAmount - targetRemaining - automaticCategoryAmount)
+        )
+
+        return roundToCents(bankContribution)
     }
 
     @discardableResult
@@ -350,6 +390,7 @@ final class BudgetViewModel: ObservableObject {
 
         bankBalance -= normalizedAmount
         allocatedBySubcategoryID[subcategoryID, default: 0] += normalizedAmount
+        recordMonthlyIncome(for: subcategoryID, amount: normalizedAmount)
         appendHistoryEvent(
             BudgetHistoryEvent(
                 type: .transferFromFreeCapital,
@@ -519,10 +560,8 @@ final class BudgetViewModel: ObservableObject {
         sub.fixedMinimumPercentage = nil
         sub.minLimit = finalMinLimit > 0 ? finalMinLimit : nil
         sub.maxLimit = normalizedMaxLimit > 0 ? normalizedMaxLimit : nil
-        sub.priority = priority.rawValue
-
         settings.categories[categoryIndex].subcategories[subIndex] = sub
-        enforceUniquePriority(in: categoryIndex, selectedLevel: priority, selectedID: subcategoryID)
+        normalizePriorityRules()
         moveExcessAboveMaxToBank(categoryType: categoryType, subcategoryID: subcategoryID)
         recalculate()
     }
@@ -535,7 +574,7 @@ final class BudgetViewModel: ObservableObject {
         for setup in setups {
             guard let categoryIndex = settings.categories.firstIndex(where: { $0.type == setup.categoryType }) else { continue }
             guard let subIndex = settings.categories[categoryIndex].subcategories.firstIndex(where: {
-                $0.isSystem && $0.name == setup.name
+                $0.isSystem && $0.systemKey == setup.systemKey
             }) else { continue }
 
             let normalizedPercentage = max(0, setup.percentage)
@@ -558,11 +597,13 @@ final class BudgetViewModel: ObservableObject {
         }
 
         guard didChange else { return }
+        normalizePriorityRules()
         recalculate()
     }
 
     func applyStartOnboardingConfiguration(_ configuration: StartOnboardingConfiguration) {
         settings = configuration.settings
+        normalizePriorityRules()
         income = 0
         lastIncomeAmount = max(0, configuration.input.monthlyIncome)
         bankBalance = 0
@@ -571,11 +612,14 @@ final class BudgetViewModel: ObservableObject {
         categoryTargetBaselineByID = [:]
         lastIncomeToBankByCategoryID = [:]
         lastBankAutoDistributedBySubcategoryID = [:]
+        monthlyIncomeBySubcategoryID = [:]
+        monthlyTrackingMonthKey = Self.makeMonthKey()
 
         syncAllocationStorageWithSettings()
         syncTargetBaselineStorageWithSettings()
         syncLastIncomeToBankStorageWithSettings()
         syncLastBankAutoDistributionStorageWithSettings()
+        syncMonthlyIncomeStorageWithSettings()
 
         if configuration.input.monthlyIncome > 0 {
             income = configuration.input.monthlyIncome
@@ -585,6 +629,7 @@ final class BudgetViewModel: ObservableObject {
         let startingFreeCapital = configuration.input.positiveCapital
         if startingFreeCapital > 0 {
             bankBalance += startingFreeCapital
+            let allocationsBefore = allocatedBySubcategoryID
             allocationEngine.resolveMinimumDeficitsFromBank(
                 settings: settings,
                 allocatedBySubcategoryID: &allocatedBySubcategoryID,
@@ -592,6 +637,7 @@ final class BudgetViewModel: ObservableObject {
                 lastBankAutoDistributedBySubcategoryID: &lastBankAutoDistributedBySubcategoryID,
                 trackAutoDistribution: true
             )
+            recordMonthlyIncomeChanges(from: allocationsBefore, to: allocatedBySubcategoryID)
         }
 
         recalculate()
@@ -612,6 +658,7 @@ final class BudgetViewModel: ObservableObject {
         settings.categories[categoryIndex].subcategories.remove(at: subIndex)
         allocatedBySubcategoryID.removeValue(forKey: subcategoryID)
         syncLastBankAutoDistributionStorageWithSettings()
+        syncMonthlyIncomeStorageWithSettings()
         recalculate()
     }
 
@@ -759,13 +806,14 @@ final class BudgetViewModel: ObservableObject {
             fixedMinimumPercentage: nil,
             minLimit: normalizedMinLimit > 0 ? normalizedMinLimit : nil,
             maxLimit: normalizedMaxLimit > 0 ? normalizedMaxLimit : nil,
-            priority: priority.rawValue
+            priority: SubcategoryPriorityLevel.low.rawValue
         )
 
         settings.categories[categoryIndex].subcategories.append(subcategory)
+        normalizePriorityRules()
         allocatedBySubcategoryID[newSubcategoryID] = 0
         syncLastBankAutoDistributionStorageWithSettings()
-        enforceUniquePriority(in: categoryIndex, selectedLevel: priority, selectedID: newSubcategoryID)
+        syncMonthlyIncomeStorageWithSettings()
 
         _ = autoReallocateExcessWithinCategory(
             categoryIndex: categoryIndex,
@@ -778,6 +826,7 @@ final class BudgetViewModel: ObservableObject {
         if bankTopUp > 0 {
             bankBalance -= bankTopUp
             allocatedBySubcategoryID[newSubcategoryID, default: 0] += bankTopUp
+            recordMonthlyIncome(for: newSubcategoryID, amount: bankTopUp)
             appendHistoryEvent(
                 BudgetHistoryEvent(
                     type: .transferFromFreeCapital,
@@ -899,6 +948,7 @@ final class BudgetViewModel: ObservableObject {
 
                 allocatedBySubcategoryID[donor.id, default: 0] -= transferAmount
                 allocatedBySubcategoryID[targetSubcategoryID, default: 0] += transferAmount
+                recordMonthlyIncome(for: targetSubcategoryID, amount: transferAmount)
                 appendCategoryTransferHistory(
                     categoryType: category.type,
                     from: donor,
@@ -997,6 +1047,7 @@ final class BudgetViewModel: ObservableObject {
 
             allocatedBySubcategoryID[donorID, default: 0] -= amount
             allocatedBySubcategoryID[target.id, default: 0] += amount
+            recordMonthlyIncome(for: target.id, amount: amount)
             appendCategoryTransferHistory(
                 categoryType: category.type,
                 from: donor,
@@ -1074,7 +1125,16 @@ final class BudgetViewModel: ObservableObject {
         lastBankAutoDistributedBySubcategoryID = lastBankAutoDistributedBySubcategoryID
             .filter { validSubcategoryIDs.contains($0.key) }
     }
+
+    private func syncMonthlyIncomeStorageWithSettings() {
+        let validSubcategoryIDs = Set(settings.categories.flatMap { $0.subcategories.map(\.id) })
+
+        monthlyIncomeBySubcategoryID = monthlyIncomeBySubcategoryID
+            .filter { validSubcategoryIDs.contains($0.key) }
+    }
+
     private func applyIncomeDelta(_ deltaIncome: Double) {
+        let allocationsBefore = allocatedBySubcategoryID
         allocationEngine.applyIncomeDelta(
             deltaIncome,
             settings: settings,
@@ -1084,10 +1144,13 @@ final class BudgetViewModel: ObservableObject {
             lastIncomeToBankByCategoryID: &lastIncomeToBankByCategoryID,
             lastBankAutoDistributedBySubcategoryID: &lastBankAutoDistributedBySubcategoryID
         )
+        recordMonthlyIncomeChanges(from: allocationsBefore, to: allocatedBySubcategoryID)
         topUpEmergencyReserveFromFreeCapital()
     }
 
     private func buildDistribution() -> BudgetDistribution {
+        let monthlyExpenseBySubcategoryID = currentMonthExpenseBySubcategoryID()
+
         let categoryAllocations: [CategoryAllocation] = settings.categories.map { category in
             let categoryAllocatedAmount = categoryCurrentAllocated(for: category)
 
@@ -1097,6 +1160,8 @@ final class BudgetViewModel: ObservableObject {
                 let remaining = max(0, allocated - spent)
                 let minimumTarget = minimumFloorForRebalance(for: subcategory)
                 let deficit = max(0, minimumTarget - remaining)
+                let monthlyIncome = monthlyIncomeBySubcategoryID[subcategory.id, default: 0]
+                let monthlyExpense = monthlyExpenseBySubcategoryID[subcategory.id, default: 0]
 
                 return SubcategoryAllocation(
                     id: subcategory.id,
@@ -1112,7 +1177,9 @@ final class BudgetViewModel: ObservableObject {
                     allocatedAmount: roundToCents(allocated),
                     spentAmount: roundToCents(spent),
                     remainingAmount: roundToCents(remaining),
-                    deficitAmount: roundToCents(deficit)
+                    deficitAmount: roundToCents(deficit),
+                    monthlyIncomeAmount: roundToCents(monthlyIncome),
+                    monthlyExpenseAmount: roundToCents(monthlyExpense)
                 )
             }
 
@@ -1234,6 +1301,7 @@ final class BudgetViewModel: ObservableObject {
     }
 
     private func topUpEmergencyReserveFromFreeCapital() {
+        let allocationsBefore = allocatedBySubcategoryID
         allocationEngine.resolveEmergencyReserveMinimumFromBank(
             settings: settings,
             allocatedBySubcategoryID: &allocatedBySubcategoryID,
@@ -1241,6 +1309,7 @@ final class BudgetViewModel: ObservableObject {
             lastBankAutoDistributedBySubcategoryID: &lastBankAutoDistributedBySubcategoryID,
             trackAutoDistribution: true
         )
+        recordMonthlyIncomeChanges(from: allocationsBefore, to: allocatedBySubcategoryID)
     }
 
     private func maxCap(for subcategory: Subcategory) -> Double {
@@ -1254,18 +1323,6 @@ final class BudgetViewModel: ObservableObject {
         (value * 100).rounded() / 100
     }
 
-    private func enforceUniquePriority(in categoryIndex: Int, selectedLevel: SubcategoryPriorityLevel, selectedID: UUID) {
-        guard selectedLevel == .high || selectedLevel == .medium else { return }
-
-        for index in settings.categories[categoryIndex].subcategories.indices {
-            let existing = settings.categories[categoryIndex].subcategories[index]
-            if existing.id != selectedID,
-               existing.priority == selectedLevel.rawValue {
-                settings.categories[categoryIndex].subcategories[index].priority = SubcategoryPriorityLevel.low.rawValue
-            }
-        }
-    }
-
     private func persistCurrentState() {
         let state = BudgetPersistedState(
             income: income,
@@ -1275,6 +1332,8 @@ final class BudgetViewModel: ObservableObject {
             categoryTargetBaselineByID: encodeUUIDMap(categoryTargetBaselineByID),
             lastIncomeToBankByCategoryID: encodeUUIDMap(lastIncomeToBankByCategoryID),
             lastBankAutoDistributedBySubcategoryID: encodeUUIDMap(lastBankAutoDistributedBySubcategoryID),
+            monthlyIncomeBySubcategoryID: encodeUUIDMap(monthlyIncomeBySubcategoryID),
+            monthlyTrackingMonthKey: monthlyTrackingMonthKey,
             bankBalance: bankBalance
         )
         persistenceService.saveBudgetState(state)
@@ -1284,17 +1343,22 @@ final class BudgetViewModel: ObservableObject {
         income = max(0, persistedState.income)
         lastIncomeAmount = max(0, persistedState.lastIncomeAmount)
         settings = persistedState.settings
+        normalizePriorityRules()
 
         allocatedBySubcategoryID = decodeUUIDMap(persistedState.allocatedBySubcategoryID)
         categoryTargetBaselineByID = decodeUUIDMap(persistedState.categoryTargetBaselineByID)
         lastIncomeToBankByCategoryID = decodeUUIDMap(persistedState.lastIncomeToBankByCategoryID)
         lastBankAutoDistributedBySubcategoryID = [:]
+        monthlyIncomeBySubcategoryID = decodeUUIDMap(persistedState.monthlyIncomeBySubcategoryID)
+        monthlyTrackingMonthKey = persistedState.monthlyTrackingMonthKey
         bankBalance = max(0, persistedState.bankBalance)
 
         syncAllocationStorageWithSettings()
         syncTargetBaselineStorageWithSettings()
         syncLastIncomeToBankStorageWithSettings()
         syncLastBankAutoDistributionStorageWithSettings()
+        syncMonthlyIncomeStorageWithSettings()
+        rolloverMonthlyTrackingIfNeeded()
     }
 
     private func encodeUUIDMap(_ map: [UUID: Double]) -> [String: Double] {
@@ -1316,5 +1380,79 @@ final class BudgetViewModel: ObservableObject {
     private func clearHistory() {
         historyEvents = []
         historyStorage.clear()
+    }
+
+    private func currentMonthExpenseBySubcategoryID(now: Date = Date()) -> [UUID: Double] {
+        let currentMonthKey = Self.makeMonthKey(for: now, calendar: calendar)
+
+        return historyEvents.reduce(into: [:]) { partialResult, event in
+            guard event.type == .expense,
+                  let subcategoryID = event.subcategoryID,
+                  Self.makeMonthKey(for: event.createdAt, calendar: calendar) == currentMonthKey else { return }
+            partialResult[subcategoryID, default: 0] += event.amount
+        }
+    }
+
+    private func recordMonthlyIncome(for subcategoryID: UUID, amount: Double) {
+        let normalized = roundToCents(max(0, amount))
+        guard normalized > 0.0001 else { return }
+        rolloverMonthlyTrackingIfNeeded()
+        monthlyIncomeBySubcategoryID[subcategoryID, default: 0] += normalized
+    }
+
+    private func recordMonthlyIncomeChanges(from before: [UUID: Double], to after: [UUID: Double]) {
+        let allIDs = Set(before.keys).union(after.keys)
+
+        for id in allIDs {
+            let delta = after[id, default: 0] - before[id, default: 0]
+            if delta > 0.0001 {
+                recordMonthlyIncome(for: id, amount: delta)
+            }
+        }
+    }
+
+    private func rolloverMonthlyTrackingIfNeeded(now: Date = Date()) {
+        let currentMonthKey = Self.makeMonthKey(for: now, calendar: calendar)
+        guard monthlyTrackingMonthKey != currentMonthKey else { return }
+        monthlyTrackingMonthKey = currentMonthKey
+        monthlyIncomeBySubcategoryID = [:]
+    }
+
+    private static func makeMonthKey(for date: Date = Date(), calendar: Calendar = .current) -> String {
+        let components = calendar.dateComponents([.year, .month], from: date)
+        return String(format: "%04d-%02d", components.year ?? 0, components.month ?? 0)
+    }
+
+    private func normalizePriorityRules() {
+        for categoryIndex in settings.categories.indices {
+            let category = settings.categories[categoryIndex]
+
+            for subcategoryIndex in settings.categories[categoryIndex].subcategories.indices {
+                let subcategory = settings.categories[categoryIndex].subcategories[subcategoryIndex]
+                settings.categories[categoryIndex].subcategories[subcategoryIndex].priority =
+                    canonicalPriority(for: subcategory, in: category).rawValue
+            }
+        }
+    }
+
+    private func canonicalPriority(
+        for subcategory: Subcategory,
+        in category: ExpenseCategory
+    ) -> SubcategoryPriorityLevel {
+        guard subcategory.isSystem else { return .low }
+
+        switch category.type {
+        case .essentials:
+            let housingPercentage = category.subcategories.first(where: { $0.systemKey == .housing })?.percentage ?? 0
+            let shouldPrioritizeFood = housingPercentage <= 10.0001
+            if shouldPrioritizeFood {
+                return subcategory.systemKey == .food ? .high : .medium
+            }
+            return subcategory.systemKey == .housing ? .high : .medium
+        case .wants:
+            return subcategory.systemKey == .shopping ? .high : .medium
+        case .savings:
+            return subcategory.systemKey == .emergencyFund ? .high : .medium
+        }
     }
 }

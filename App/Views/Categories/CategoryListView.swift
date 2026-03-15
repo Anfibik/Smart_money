@@ -17,11 +17,11 @@ struct CategoryListView: View {
                         Text(category.type.title)
                             .font(.headline)
 
-                        Text("Выделено: \(category.allocatedAmount, format: .currency(code: budgetViewModel.settings.currencyCode))")
+                        Text("Выделено: \(currency(category.allocatedAmount))")
                             .font(.subheadline)
 
                         let remaining = category.subcategoryAllocations.reduce(0) { $0 + $1.remainingAmount }
-                        Text("Остаток: \(remaining, format: .currency(code: budgetViewModel.settings.currencyCode))")
+                        Text("Остаток: \(currency(remaining))")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -30,5 +30,9 @@ struct CategoryListView: View {
             }
         }
         .navigationTitle("Категории")
+    }
+
+    private func currency(_ value: Double) -> String {
+        AppCurrencyFormatter.string(value, currencyCode: budgetViewModel.settings.currencyCode)
     }
 }

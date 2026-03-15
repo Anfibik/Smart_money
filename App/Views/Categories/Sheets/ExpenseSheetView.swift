@@ -5,6 +5,7 @@ struct ExpenseSheetView: View {
     let currencyCode: String
     let bankAvailableAmount: Double
     let coverageRequirement: CategoryCoverageRequirement?
+    let automaticBankCoverageAmount: Double
     @Binding var expenseInput: String
     let onPay: (Double, Bool) -> Void
     let onAutoForcedPay: (Double) -> Void
@@ -40,11 +41,11 @@ struct ExpenseSheetView: View {
                 Text(target.subcategoryName)
                     .font(.title3.bold())
 
-                Text("Доступно в подкатегории: \(availableFromSubcategory, format: .currency(code: currencyCode))")
+                Text("Доступно в подкатегории: \(currency(availableFromSubcategory))")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
-                Text("Доступно в свободном капитале: \(bankAvailableAmount, format: .currency(code: currencyCode))")
+                Text("Доступно в свободном капитале: \(currency(bankAvailableAmount))")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
@@ -59,6 +60,12 @@ struct ExpenseSheetView: View {
                     Text("Нехватка будет автоматически покрыта свободными деньгами категории и свободным капиталом.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    if automaticBankCoverageAmount > 0.01 {
+                        Text("Из свободного капитала будет взято: \(currency(automaticBankCoverageAmount))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 if let coverageRequirement, enteredAmount > 0, !coverageRequirement.canCover {
@@ -111,7 +118,7 @@ struct ExpenseSheetView: View {
                 Button("Отмена", role: .cancel) {}
             } message: {
                 if let coverageRequirement {
-                    Text("Нужно дополнительно покрыть \(coverageRequirement.shortageAmount, format: .currency(code: currencyCode)) за счет других карточек категории.")
+                    Text("Нужно дополнительно покрыть \(currency(coverageRequirement.shortageAmount)) за счет других карточек категории.")
                 }
             }
             .sheet(isPresented: $isManualCoveragePresented) {
@@ -136,23 +143,27 @@ struct ExpenseSheetView: View {
 
     private func coverageInfo(requirement: CategoryCoverageRequirement) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Автоматически закроется из свободных денег категории: \(requirement.automaticCategoryAmount, format: .currency(code: currencyCode))")
+            Text("Автоматически закроется из свободных денег категории: \(currency(requirement.automaticCategoryAmount))")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Text("Автоматически закроется из свободного капитала: \(requirement.bankContributionAmount, format: .currency(code: currencyCode))")
+            Text("Автоматически закроется из свободного капитала: \(currency(requirement.bankContributionAmount))")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
             if requirement.canCover {
-                Text("Останется покрыть внутри категории: \(requirement.shortageAmount, format: .currency(code: currencyCode)). Можно выбрать Авто или Ручной режим.")
+                Text("Останется покрыть внутри категории: \(currency(requirement.shortageAmount)). Можно выбрать Авто или Ручной режим.")
                     .font(.caption)
                     .foregroundStyle(.orange)
             } else {
-                Text("Даже с заходом в минимумы других карточек категория не покрывает сумму. Максимум доступно: \(requirement.totalAvailableAmount, format: .currency(code: currencyCode)).")
+                Text("Даже с заходом в минимумы других карточек категория не покрывает сумму. Максимум доступно: \(currency(requirement.totalAvailableAmount)).")
                     .font(.caption)
                     .foregroundStyle(.red)
             }
         }
+    }
+
+    private func currency(_ value: Double) -> String {
+        AppCurrencyFormatter.string(value, currencyCode: currencyCode)
     }
 }

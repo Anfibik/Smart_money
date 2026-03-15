@@ -16,7 +16,7 @@ struct DashboardView: View {
             Text("Сводка")
                 .font(.title2.bold())
 
-            Text("Доход: \(distribution.income, format: .currency(code: currencyCode))")
+            Text("Доход: \(currency(distribution.income))")
                 .font(.headline)
 
             ForEach(distribution.categoryAllocations) { category in
@@ -24,7 +24,7 @@ struct DashboardView: View {
                     Text(category.type.title)
                         .font(.headline)
 
-                    Text("\(category.allocatedAmount, format: .currency(code: currencyCode)) • \(category.percentage, specifier: "%.0f")%")
+                    Text("\(currency(category.allocatedAmount)) • \(category.percentage, specifier: "%.0f")%")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -34,5 +34,9 @@ struct DashboardView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10))
             }
         }
+    }
+
+    private func currency(_ value: Double) -> String {
+        AppCurrencyFormatter.string(value, currencyCode: currencyCode)
     }
 }

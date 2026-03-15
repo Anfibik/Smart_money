@@ -31,15 +31,15 @@ struct SubcategoryListView: View {
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
 
-                                Text("Выделено: \(sub.allocatedAmount, format: .currency(code: currencyCode))")
+                                Text("Выделено: \(currency(sub.allocatedAmount))")
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
 
-                                Text("Потрачено: \(sub.spentAmount, format: .currency(code: currencyCode))")
+                                Text("Потрачено: \(currency(sub.spentAmount))")
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
 
-                                Text("Остаток: \(sub.remainingAmount, format: .currency(code: currencyCode))")
+                                Text("Остаток: \(currency(sub.remainingAmount))")
                                     .font(.subheadline.bold())
                             }
                             .padding()
@@ -104,5 +104,9 @@ struct SubcategoryListView: View {
                 }
             }
         }
+    }
+
+    private func currency(_ value: Double) -> String {
+        AppCurrencyFormatter.string(value, currencyCode: currencyCode)
     }
 }

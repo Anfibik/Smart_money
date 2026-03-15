@@ -39,18 +39,18 @@ enum StartStrategyType: String, Codable, CaseIterable, Hashable, Identifiable {
         case .balance:
             return "Баланс"
         case .capitalGrowth:
-            return "Рост капитала"
+            return "Рост Капитала"
         }
     }
 
     var summary: String {
         switch self {
         case .stability:
-            return "Основные 60% / Желаемые 15% / Накопления 25%"
+            return "Упор на основные потребности и уверенность в завтрашнем дне."
         case .balance:
-            return "Основные 55% / Желаемые 20% / Накопления 25%"
+            return "Сбалансированная стратегия для большей свободы в своих желаниях"
         case .capitalGrowth:
-            return "Основные 50% / Желаемые 15% / Накопления 35%"
+            return "Стратегия для инвестиций, открытия бизнеса или накоплений под крупные покупки"
         }
     }
 
@@ -112,9 +112,11 @@ struct StartOnboardingDraft: Hashable {
     var capital: Double = 0
     var housingType: SetupHousingType = .rented
     var housingCost: Double = 0
-    var carsCount: Int = 0
+    var hasCar: Bool = false
     var dependentsCount: Int = 0
+    var elderlyDependentsCount: Int = 0
     var childrenCount: Int = 0
+    var petsCount: Int = 0
     var hasCredit: Bool = false
     var creditMonthlyPayment: Double = 0
     var strategy: StartStrategyType = .stability
@@ -126,9 +128,11 @@ struct StartOnboardingDraft: Hashable {
             capital: capital,
             housingType: housingType,
             housingCost: housingCost,
-            carsCount: carsCount,
+            hasCar: hasCar,
             dependentsCount: dependentsCount,
+            elderlyDependentsCount: elderlyDependentsCount,
             childrenCount: childrenCount,
+            petsCount: petsCount,
             hasCredit: hasCredit,
             creditMonthlyPayment: creditMonthlyPayment,
             strategy: strategy,
@@ -142,9 +146,11 @@ struct StartOnboardingInput: Codable, Hashable {
     let capital: Double
     let housingType: SetupHousingType
     let housingCost: Double
-    let carsCount: Int
+    let hasCar: Bool
     let dependentsCount: Int
+    let elderlyDependentsCount: Int
     let childrenCount: Int
+    let petsCount: Int
     let hasCredit: Bool
     let creditMonthlyPayment: Double
     let strategy: StartStrategyType
@@ -155,9 +161,11 @@ struct StartOnboardingInput: Codable, Hashable {
         capital: Double,
         housingType: SetupHousingType,
         housingCost: Double,
-        carsCount: Int,
+        hasCar: Bool,
         dependentsCount: Int,
+        elderlyDependentsCount: Int,
         childrenCount: Int,
+        petsCount: Int,
         hasCredit: Bool,
         creditMonthlyPayment: Double,
         strategy: StartStrategyType,
@@ -167,9 +175,11 @@ struct StartOnboardingInput: Codable, Hashable {
         self.capital = capital
         self.housingType = housingType
         self.housingCost = max(0, housingCost)
-        self.carsCount = max(0, carsCount)
+        self.hasCar = hasCar
         self.dependentsCount = max(0, dependentsCount)
+        self.elderlyDependentsCount = max(0, elderlyDependentsCount)
         self.childrenCount = max(0, childrenCount)
+        self.petsCount = max(0, petsCount)
         self.hasCredit = hasCredit
         self.creditMonthlyPayment = hasCredit ? max(0, creditMonthlyPayment) : 0
         self.strategy = strategy
@@ -177,11 +187,11 @@ struct StartOnboardingInput: Codable, Hashable {
     }
 
     var adultDependentsCount: Int {
-        dependentsCount
+        dependentsCount + elderlyDependentsCount
     }
 
     var adultsIncludingUserCount: Int {
-        1 + dependentsCount
+        1 + adultDependentsCount
     }
 
     var totalPeopleCount: Int {

@@ -8,24 +8,23 @@ struct CategoryExpandedContentView: View {
     let onSubcategoryLongPress: (SubcategoryAllocation) -> Void
     let onAddTap: () -> Void
 
+    @State private var isDetailModeVisible = false
+
     private let gridColumns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
 
     var body: some View {
         let categorySpent = category.subcategoryAllocations.reduce(0) { $0 + $1.spentAmount }
         let categoryRemaining = category.subcategoryAllocations.reduce(0) { $0 + $1.remainingAmount }
-        let totalCurrentCategoryAmount = category.subcategoryAllocations.reduce(0.0) { partialResult, subcategory in
-            partialResult + subcategory.remainingAmount
-        }
 
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Text("Текущая: \(categoryRemaining, format: .currency(code: currencyCode))")
+                Text("Текущая: \(currency(categoryRemaining))")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
 
                 Spacer(minLength: 8)
 
-                Text("Расход: - \(categorySpent, format: .currency(code: currencyCode))")
+                Text("Расход: - \(currency(categorySpent))")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
@@ -33,15 +32,12 @@ struct CategoryExpandedContentView: View {
 
             LazyVGrid(columns: gridColumns, spacing: 8) {
                 ForEach(category.subcategoryAllocations) { subcategory in
-                    let actualPercent = totalCurrentCategoryAmount > 0
-                        ? (subcategory.remainingAmount / totalCurrentCategoryAmount) * 100.0
-                        : 0
-
                     SubcategoryCardView(
                         subcategory: subcategory,
-                        actualPercent: actualPercent,
+                        isDetailSideVisible: isDetailModeVisible,
                         currencyCode: currencyCode,
                         onTap: { onSubcategoryTap(subcategory) },
+                        onToggleDetailMode: { isDetailModeVisible.toggle() },
                         onLongPress: { onSubcategoryLongPress(subcategory) }
                     )
                 }
@@ -64,5 +60,9 @@ struct CategoryExpandedContentView: View {
         .padding(.bottom, 10)
         .padding(.top, 6)
         .clipped()
+    }
+
+    private func currency(_ value: Double) -> String {
+        AppCurrencyFormatter.string(value, currencyCode: currencyCode)
     }
 }

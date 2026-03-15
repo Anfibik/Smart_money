@@ -26,11 +26,13 @@ At the moment the project can:
 - add monthly income
 - distribute income across categories and cards
 - register expenses on cards
-- optionally cover expense shortages from `Free Capital`
+- automatically use free money inside a category and `Free Capital` during expense coverage
+- cover remaining shortages inside a category in either automatic or manual reallocation mode
 - add custom user cards
-- edit custom user cards
+- edit card percentage, minimum, maximum, and icon
 - transfer money from a card to `Free Capital`
 - transfer money from `Free Capital` to a card
+- keep internal card-to-card reallocation history inside one category
 - keep an operation history
 - show statistics by month, by year, and for all time since the last full reset
 - fully reset the state and start from scratch
@@ -126,6 +128,7 @@ This matters: the UI should not mutate finances directly. All financial actions 
   - `expense`
   - `transferToFreeCapital`
   - `transferFromFreeCapital`
+  - `categoryReallocation`
 - also contains history period modes and history filters
 
 `App/Models/BudgetStatisticsSummary.swift`
@@ -312,48 +315,61 @@ The key rule in the project is:
 - first satisfy `minLimit`
 - then apply percentage logic
 
-If percentage-based money is not enough, the system tries to:
-1. use the category money
-2. use `Free Capital`
-3. if that still is not enough, leave a deficit
+There are 2 related but different behaviors in the current code:
+1. during allocation/recalculation, unresolved minimums can remain as visible deficits
+2. during an expense or new-card operation, the app tries free money inside the category, then `Free Capital`, then internal category reallocation; if the full amount still cannot be covered, the operation is rejected
 
 Current priority levels:
 - `High`
 - `Medium`
 - `Low`
 
-Current constraint:
-- only one `High` card can exist inside a category
-- only one `Medium` card can exist inside a category
-- all others become `Low`
+Current rule set:
+- `High`: exactly one system card per main category
+- `Essentials`: `Housing`
+- `Wants`: `Shopping`
+- `Savings`: `Emergency Fund`
+- all other system cards are `Medium`
+- all user-created cards are always `Low`
 
-This is enforced in `BudgetViewModel` through `enforceUniquePriority`.
+How allocation works:
+- first the engine satisfies `High`
+- then it distributes the remaining money across `Medium`
+- then anything left can reach `Low`
+- if money is not enough for a whole priority group, that group is filled proportionally to each card's unmet minimum, not one-by-one
 
 ### 7.4 Free Capital
 
 `Free Capital` is the pool of money outside cards.
 
-It is used in two directions:
+It is used in several ways:
 - leftover money can flow into it
-- deficits on cards can be covered from it automatically or manually
+- deficits on cards can be covered from it automatically
+- onboarding minimum deficits can be covered from it automatically
 
-Historically this used to be the old `jar`, but in the current product the term is `Free Capital`.
+There is also a special rule:
+- the emergency reserve card is topped up from `Free Capital` first whenever possible
 
 ### 7.5 Expenses
 
 When the user records an expense:
 - the system finds the target card
-- the expense is deducted from that card's remaining amount
-- if the remaining amount is insufficient and the user allowed it, the shortage is covered from `Free Capital`
-- one `expense` history record is created
+- it first uses the target card's own remaining amount
+- then it automatically reuses free money from other cards in the same category
+- then it automatically uses `Free Capital`
+- if there is still a shortage but the category can cover it, the user chooses automatic or manual internal reallocation
+- if even that is not enough, the expense is blocked
 
-Even if part of the expense was covered by `Free Capital`, the history stays a single event.
+History behavior:
+- one `expense` history record is always created for the final expense
+- if the app had to move money between category cards, additional `categoryReallocation` history events are also created
 
 ### 7.6 Transfers
 
-There are two types of internal transfers:
+There are three types of internal transfers:
 - from a card to `Free Capital`
 - from `Free Capital` to a card
+- from one card to another card inside the same category (`categoryReallocation`)
 
 They:
 - appear in history
@@ -376,13 +392,13 @@ The current flow has 5 steps:
 
 The startup flow currently collects:
 - average monthly income for the last year
-- current cash capital
+- current capital, which can be positive or negative
 - housing type
 - housing cost
 - number of cars
 - number of adult dependents
 - number of children under 16
-- whether there is a loan and its monthly payment
+- whether there is a credit payment and its monthly amount
 - custom cards
 - strategy
 
@@ -390,6 +406,7 @@ The startup flow currently collects:
 
 Current strategies:
 - `Stability = 60 / 15 / 25`
+- `Balance = 55 / 20 / 25`
 - `Capital Growth = 50 / 15 / 35`
 
 The order is always:
@@ -398,7 +415,7 @@ The order is always:
 ### 8.4 System cards created by onboarding
 
 Always created:
-- `Essentials`: `Housing`, `Food`, `Health`
+- `Essentials`: `Housing`, `Food`, `Health`, `Hygiene`
 - `Wants`: `Shopping`, `Hobby`, `Entertainment`
 - `Savings`: `Emergency Fund`
 
@@ -406,7 +423,7 @@ Conditionally created:
 - `Essentials`: `Children`, if children > 0
 - `Essentials`: `Transport`, if cars > 0
 - `Savings`: `Debt`, if capital is negative
-- `Savings`: `Loan`, if a loan is enabled
+- `Savings`: `Credit`, if credit is enabled
 
 ### 8.5 Minimums currently calculated by onboarding
 
@@ -415,38 +432,62 @@ Key formulas in `StartOnboardingBuilder`:
 `Housing`
 - the user enters the base housing amount
 - minimum = entered amount * `1.10`
+- base percentage inside `Essentials` = `30%` for rented housing, `10%` for owned housing
 
 `Food`
-- percentage inside `Essentials`: `10 + 5 * adult dependents + 4 * children`
+- percentage inside `Essentials`: `20 + 5 * adult dependents + 4 * children`
 - money minimum:
-  - `9000` for each adult, including the user
-  - `6000` for each child
+  - `8000 * (1 + 0.8 * adult dependents)`
+  - plus `5000 * children`
 
 `Health`
-- percentage inside `Essentials`: `5 + 2 * adult dependents + 3 * children`
+- percentage inside `Essentials`: `5 + 0.5 * adult dependents + 1.5 * children`
 - minimum = the maximum of:
   - the percentage-based amount
   - `500 * total number of people`
 
+`Hygiene`
+- base percentage inside `Essentials` = `5%`
+- minimum = `500 UAH`
+
 `Children`
 - a separate card for child-related costs excluding food and health
 - created only if children > 0
+- base percentage inside `Essentials` = `10%`
+- minimum = `10%` of the `Essentials` category budget
 
 `Transport`
 - created if cars > 0
+- base percentage inside `Essentials` = `10%`
+- minimum = `10%` of the `Essentials` category budget
+
+`Shopping`
+- base percentage inside `Wants` = `30%`
+- minimum = `max(500, wantsBudget * 0.30)`
+
+`Hobby`
+- base percentage inside `Wants` = `20%`
+- minimum = `max(500, wantsBudget * 0.20)`
+
+`Entertainment`
+- base percentage inside `Wants` = `20%`
+- minimum = `wantsBudget * 0.20`
 
 `Emergency Fund`
-- reserve target = `6 months` of essential mandatory living costs
-- the initial monthly minimum for the fund is calculated from the missing reserve target and current positive capital
+- reserve target = `6 months` of mandatory living costs
+- `minLimit` is set to the full 6-month target
+- `maxLimit` is set to `12 months` of mandatory living costs
+- current positive capital is then applied immediately from `Free Capital`
 
 `Debt`
 - appears when capital is negative
 - base percentage inside `Savings` = `50%`
+- minimum = `max(50% of savings budget, abs(negative capital) / 24)`
 
-`Loan`
-- appears when a loan is enabled
+`Credit`
+- appears when credit is enabled
 - base percentage inside `Savings` = `10%`
-- minimum cannot be lower than the entered monthly payment
+- minimum = `max(monthly payment, 10% of savings budget)`
 
 ### 8.6 Custom cards in onboarding
 
@@ -518,6 +559,7 @@ The app records:
 - expenses
 - transfers to `Free Capital`
 - transfers from `Free Capital`
+- internal card-to-card reallocations inside a category
 
 ### 9.4 What goes into statistics
 
@@ -543,6 +585,7 @@ Additional metrics:
 - average expense
 - expenses by category
 - top-5 expense cards
+- transfer count inside the selected period
 - a timeline by day or month
 
 ### 9.6 History storage
@@ -587,10 +630,11 @@ After that:
 3. The user adds income through the top bar in `ContentView`
 4. Income is distributed through the system
 5. The user taps a card and records an expense
-6. If needed, the expense can be partially covered from `Free Capital`
+6. If needed, the app first uses free category money and `Free Capital`, then can ask for automatic or manual internal reallocation
 7. The user can long-press a card to open the edit flow
-8. The user can add a new custom card inside a category
-9. Through the side menu the user can open history and statistics
+8. In the edit flow the user can also withdraw to or deposit from `Free Capital`
+9. The user can add a new custom card inside a category
+10. Through the side menu the user can open history and statistics
 
 ### 11.2 Gestures and modal flows
 
@@ -606,6 +650,7 @@ After that:
 3. `DashboardView` is not currently the main product screen.
 4. A lot of logic is concentrated in `BudgetViewModel`; if the app grows further, splitting use cases into more services may become necessary.
 5. `SettingsViewModel` and some older infrastructure still exist, but the active product flow now goes through `BudgetViewModel + StartOnboardingBuilder + BudgetAllocationEngine`.
+6. Several onboarding and engine rules still rely on exact system card names in Russian, especially the emergency reserve card `Подушка`.
 
 ## 13. Tests
 
@@ -618,6 +663,7 @@ What is already covered:
 - core allocation engine behavior
 - deficits and minimum resolution
 - moving excess to `Free Capital`
+- low-priority-first rebalance for a newly added minimum card
 - history write/load/clear behavior
 - building available months and years
 - filtering history by period
@@ -673,4 +719,3 @@ If explained very simply:
 4. A full reset must also clear history.
 5. In onboarding, system cards are created by the builder, not manually inside the view.
 6. `Free Capital` is a core product concept, not just a leftover amount.
-
