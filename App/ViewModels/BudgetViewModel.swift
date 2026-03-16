@@ -1452,6 +1452,10 @@ final class BudgetViewModel: ObservableObject {
         case .wants:
             return subcategory.systemKey == .shopping ? .high : .medium
         case .savings:
+            let hasDebt = category.subcategories.contains(where: { $0.systemKey == .debt })
+            if hasDebt {
+                return subcategory.systemKey == .debt ? .high : .medium
+            }
             return subcategory.systemKey == .emergencyFund ? .high : .medium
         }
     }

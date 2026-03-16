@@ -255,7 +255,7 @@ struct StartOnboardingBuilder {
         let childrenPercentage = input.childrenCount > 0 ? 10.0 : nil
         let animalsPercentage = input.petsCount > 0 ? 5.0 : nil
         let transportPercentage = input.hasCar ? 15.0 : 5.0
-        let debtPercentage = input.capital < 0 ? 50.0 : nil
+        let debtPercentage = input.capital < 0 ? 100.0 : nil
         let creditPercentage = input.hasCredit ? 10.0 : nil
 
         let housingMin = roundToCents(input.housingCost * 1.10)
@@ -279,10 +279,10 @@ struct StartOnboardingBuilder {
         let travelMin = 1000.0
         let giftsMin = 200.0
         let sportMin = 500.0
-        let debtMin = roundToCents(max(savingsBudget * 0.50, abs(min(0, input.capital)) / 24.0))
+        let debtMin = roundToCents(abs(min(0, input.capital)))
         let creditMin = roundToCents(max(input.creditMonthlyPayment, savingsBudget * 0.10))
 
-        let mandatoryLivingMonthly = housingMin + foodMin + healthMin + hygieneMin + childrenMin + animalsMin + transportMin + debtMin + creditMin
+        let mandatoryLivingMonthly = housingMin + foodMin + healthMin + hygieneMin + childrenMin + animalsMin + transportMin + creditMin
         let emergencyTarget = roundToCents(mandatoryLivingMonthly * 6.0)
         let emergencyMin = emergencyTarget
         let emergencyMaxLimit = roundToCents(mandatoryLivingMonthly * 12.0)
@@ -490,7 +490,7 @@ struct StartOnboardingBuilder {
                 percentage: 50,
                 minLimit: emergencyMin,
                 maxLimit: emergencyMaxLimit,
-                priority: .high
+                priority: debtPercentage == nil ? .high : .medium
             )
         ]
 
@@ -500,7 +500,8 @@ struct StartOnboardingBuilder {
                     systemKey: .debt,
                     percentage: debtPercentage,
                     minLimit: debtMin,
-                    priority: .medium
+                    maxLimit: debtMin,
+                    priority: .high
                 )
             )
         }
@@ -586,7 +587,8 @@ struct StartOnboardingBuilder {
     private func computeMonthlyMinimumExcludingEmergency(from settings: BudgetSettings) -> Double {
         settings.categories.reduce(0.0) { partialResult, category in
             partialResult + category.subcategories.reduce(0.0) { subTotal, subcategory in
-                if category.type == .savings && subcategory.systemKey == .emergencyFund {
+                if category.type == .savings
+                    && (subcategory.systemKey == .emergencyFund || subcategory.systemKey == .debt) {
                     return subTotal
                 }
                 return subTotal + max(0, subcategory.minLimit ?? 0)
@@ -712,6 +714,6 @@ struct StartOnboardingBuilder {
     }
 
     private var mandatoryLivingSystemKeys: Set<SystemSubcategoryKey> {
-        [.housing, .food, .health, .hygiene, .children, .animals, .transport, .debt, .credit]
+        [.housing, .food, .health, .hygiene, .children, .animals, .transport, .credit]
     }
 }

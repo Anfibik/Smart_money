@@ -153,4 +153,50 @@ final class BudgetAllocationEngineTests: XCTestCase {
         XCTAssertEqual(bank, 0, accuracy: 0.0001)
         XCTAssertEqual(distributed[renamedEmergencyFund.id, default: 0], 100, accuracy: 0.0001)
     }
+
+    func testEmergencyReserveDoesNotAutoTopUpWhileDebtNeedsFunding() {
+        let engine = BudgetAllocationEngine()
+        let emergencyFund = Subcategory(
+            name: "Подушка",
+            isSystem: true,
+            systemKey: .emergencyFund,
+            percentage: 50,
+            minLimit: 300,
+            priority: 2
+        )
+        let debt = Subcategory(
+            name: "Долг",
+            isSystem: true,
+            systemKey: .debt,
+            iconName: "banknote.fill",
+            percentage: 100,
+            minLimit: 500,
+            maxLimit: 500,
+            priority: 3
+        )
+        let settings = BudgetSettings(
+            categories: [ExpenseCategory(type: .savings, percentage: 100, subcategories: [emergencyFund, debt])],
+            currencyCode: "UAH"
+        )
+
+        var allocated: [UUID: Double] = [
+            emergencyFund.id: 0,
+            debt.id: 0
+        ]
+        var bank: Double = 400
+        var distributed: [UUID: Double] = [:]
+
+        engine.resolveEmergencyReserveMinimumFromBank(
+            settings: settings,
+            allocatedBySubcategoryID: &allocated,
+            bankBalance: &bank,
+            lastBankAutoDistributedBySubcategoryID: &distributed,
+            trackAutoDistribution: true
+        )
+
+        XCTAssertEqual(allocated[emergencyFund.id, default: 0], 0, accuracy: 0.0001)
+        XCTAssertEqual(allocated[debt.id, default: 0], 0, accuracy: 0.0001)
+        XCTAssertEqual(bank, 400, accuracy: 0.0001)
+        XCTAssertTrue(distributed.isEmpty)
+    }
 }

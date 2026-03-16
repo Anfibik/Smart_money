@@ -134,6 +134,7 @@ final class BudgetAllocationEngine {
         trackAutoDistribution: Bool
     ) {
         guard bankBalance > 0.0001 else { return }
+        guard !debtNeedsFunding(in: settings, allocatedBySubcategoryID: allocatedBySubcategoryID) else { return }
         guard let emergencyReserve = emergencyReserveSubcategory(in: settings) else { return }
 
         let minimumTarget = minimumFloorForRebalance(for: emergencyReserve)
@@ -444,6 +445,25 @@ final class BudgetAllocationEngine {
             .first(where: { $0.type == .savings })?
             .subcategories
             .first(where: { $0.systemKey == .emergencyFund })
+    }
+
+    private func debtNeedsFunding(
+        in settings: BudgetSettings,
+        allocatedBySubcategoryID: [UUID: Double]
+    ) -> Bool {
+        guard let debt = settings.categories
+            .first(where: { $0.type == .savings })?
+            .subcategories
+            .first(where: { $0.systemKey == .debt }) else {
+            return false
+        }
+
+        let minimumTarget = minimumFloorForRebalance(for: debt)
+        guard minimumTarget > 0 else { return false }
+
+        let allocated = allocatedBySubcategoryID[debt.id, default: 0]
+        let remaining = max(0, allocated - debt.spentAmount)
+        return remaining + 0.0001 < minimumTarget
     }
 
     private func maxCap(for subcategory: Subcategory) -> Double {
