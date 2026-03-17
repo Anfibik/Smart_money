@@ -11,12 +11,18 @@ enum SystemSubcategoryKey: String, Codable, CaseIterable, Hashable {
     case shopping
     case hobby
     case travel
+    case restaurants
     case gifts
     case sport
+    case beauty
+    case subscriptions
     case entertainment
     case emergencyFund
     case debt
     case credit
+    case investments
+    case business
+    case currency
 
     var defaultName: String {
         switch self {
@@ -40,10 +46,16 @@ enum SystemSubcategoryKey: String, Codable, CaseIterable, Hashable {
             return "Хобби"
         case .travel:
             return "Путешествия"
+        case .restaurants:
+            return "Рестораны"
         case .gifts:
             return "Подарки"
         case .sport:
             return "Спорт"
+        case .beauty:
+            return "Красота"
+        case .subscriptions:
+            return "Подписки"
         case .entertainment:
             return "Досуг"
         case .emergencyFund:
@@ -52,6 +64,12 @@ enum SystemSubcategoryKey: String, Codable, CaseIterable, Hashable {
             return "Долг"
         case .credit:
             return "Кредит"
+        case .investments:
+            return "Инвестиции"
+        case .business:
+            return "Бизнес"
+        case .currency:
+            return "Валюта"
         }
     }
 
@@ -77,10 +95,16 @@ enum SystemSubcategoryKey: String, Codable, CaseIterable, Hashable {
             return "gamecontroller.fill"
         case .travel:
             return "airplane"
+        case .restaurants:
+            return "fork.knife.circle.fill"
         case .gifts:
             return "gift.fill"
         case .sport:
             return "figure.run"
+        case .beauty:
+            return "sparkles.rectangle.stack.fill"
+        case .subscriptions:
+            return "play.rectangle.on.rectangle.fill"
         case .entertainment:
             return "sparkles"
         case .emergencyFund:
@@ -89,6 +113,12 @@ enum SystemSubcategoryKey: String, Codable, CaseIterable, Hashable {
             return "banknote.fill"
         case .credit:
             return "creditcard.fill"
+        case .investments:
+            return "chart.line.uptrend.xyaxis"
+        case .business:
+            return "briefcase.fill"
+        case .currency:
+            return "dollarsign.arrow.circlepath"
         }
     }
 
@@ -114,12 +144,18 @@ enum SystemSubcategoryKey: String, Codable, CaseIterable, Hashable {
             return .shopping
         case "хобби":
             return .hobby
-        case "путешествия":
+        case "путешествия", "путешествие":
             return .travel
+        case "рестораны":
+            return .restaurants
         case "подарки":
             return .gifts
         case "спорт":
             return .sport
+        case "красота":
+            return .beauty
+        case "подписки":
+            return .subscriptions
         case "развлечения", "досуг":
             return .entertainment
         case "подушка":
@@ -128,6 +164,12 @@ enum SystemSubcategoryKey: String, Codable, CaseIterable, Hashable {
             return .debt
         case "кредит":
             return .credit
+        case "инвестиции":
+            return .investments
+        case "бизнес":
+            return .business
+        case "валюта":
+            return .currency
         default:
             return nil
         }

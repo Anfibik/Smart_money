@@ -4,6 +4,7 @@ struct SubcategoryAllocation: Identifiable, Hashable {
     let id: UUID
     let name: String
     let isSystem: Bool
+    let systemKey: SystemSubcategoryKey?
     let iconName: String
     let basePercentage: Double
     let fixedMinimumPercentage: Double?

@@ -17,6 +17,7 @@ struct StartOnboardingFlowView: View {
     @State private var creditPaymentInput = ""
     @State private var strategy: StartStrategyType = .stability
     @State private var expandedCardKeys: Set<String> = []
+    @State private var selectedRecommendationKeys: Set<SystemSubcategoryKey> = []
 
     private let builder = StartOnboardingBuilder()
 
@@ -146,9 +147,14 @@ struct StartOnboardingFlowView: View {
     private var customCardsStep: some View {
         VStack(alignment: .leading, spacing: 16) {
             if let preview {
+                let descriptors = builder.onboardingCardDescriptors(for: resolvedInput)
                 ForEach(preview.configuration.categoryBudgets) { budget in
                     if let allocation = preview.distribution.categoryAllocations.first(where: { $0.type == budget.type }) {
-                        onboardingCategorySection(budget: budget, allocation: allocation)
+                        onboardingCategorySection(
+                            budget: budget,
+                            allocation: allocation,
+                            descriptors: descriptors.filter { $0.categoryType == budget.type }
+                        )
                     }
                 }
             } else {
@@ -283,9 +289,20 @@ struct StartOnboardingFlowView: View {
 
     private func onboardingCategorySection(
         budget: StartCategoryBudget,
-        allocation: CategoryAllocation
+        allocation: CategoryAllocation,
+        descriptors: [StartSystemCardDescriptor]
     ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let displayedCards = descriptors.map { descriptor in
+            OnboardingDisplayedCard(
+                descriptor: descriptor,
+                allocation: allocation.subcategoryAllocations.first(where: { $0.systemKey == descriptor.systemKey })
+            )
+        }
+        let activeCards = displayedCards.filter { !$0.descriptor.isRecommended || $0.descriptor.isActive }
+        let recommendedCards = displayedCards.filter { $0.descriptor.isRecommended && !$0.descriptor.isActive }
+        let totalIncome = preview?.distribution.income ?? 0
+
+        return VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text(budget.type.title)
                     .font(.headline)
@@ -304,12 +321,24 @@ struct StartOnboardingFlowView: View {
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 10) {
-                ForEach(allocation.subcategoryAllocations) { subcategory in
-                    onboardingSubcategoryCard(
-                        categoryType: budget.type,
-                        subcategory,
-                        totalIncome: preview?.distribution.income ?? 0
-                    )
+                Text("Текущие")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                ForEach(activeCards) { card in
+                    onboardingSubcategoryCard(card, totalIncome: totalIncome)
+                }
+            }
+
+            if !recommendedCards.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Рекомендуемые")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    ForEach(recommendedCards) { card in
+                        onboardingSubcategoryCard(card, totalIncome: totalIncome)
+                    }
                 }
             }
         }
@@ -319,24 +348,21 @@ struct StartOnboardingFlowView: View {
     }
 
     private func onboardingSubcategoryCard(
-        categoryType: ExpenseCategoryType,
-        _ subcategory: SubcategoryAllocation,
+        _ card: OnboardingDisplayedCard,
         totalIncome: Double
     ) -> some View {
-        let currentMinimumAmount = currentMinimumAmount(for: subcategory)
-        let deficitColor: Color = subcategory.deficitAmount > 0.01 ? .orange : .secondary
-        let incomeShare = incomeSharePercent(for: subcategory, totalIncome: totalIncome)
-        let descriptionText = cardDescription(for: subcategory)
-        let cardKey = onboardingCardExpansionKey(categoryType: categoryType, subcategory: subcategory)
-        let isExpanded = expandedCardKeys.contains(cardKey)
+        let descriptor = card.descriptor
+        let allocation = card.allocation
+        let incomeShare = allocation.map { incomeSharePercent(for: $0, totalIncome: totalIncome) } ?? 0
+        let isInactiveRecommendation = descriptor.isRecommended && !descriptor.isActive
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: subcategory.iconName)
+                Image(systemName: descriptor.iconName)
                     .frame(width: 24)
-                    .foregroundStyle(subcategory.isSystem ? .primary : .secondary)
+                    .foregroundStyle(isInactiveRecommendation ? .secondary : .primary)
 
-                Text(subcategory.name)
+                Text(descriptor.name)
                     .font(.subheadline.weight(.medium))
 
                 Spacer()
@@ -348,58 +374,35 @@ struct StartOnboardingFlowView: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)
-
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 14)
-                }
+                    }
                 }
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(currency(subcategory.allocatedAmount))
+                Text(currency(allocation?.allocatedAmount ?? 0))
                     .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(isInactiveRecommendation ? .secondary : .primary)
 
-                Text(descriptionText ?? " ")
+                Text(descriptor.note ?? " ")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, minHeight: 34, alignment: .topLeading)
             }
-
-            if isExpanded {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Текущие параметры")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-
-                    onboardingParameterRow("Минимум", currency(currentMinimumAmount), titleFont: .subheadline, valueFont: .subheadline.weight(.semibold))
-                    onboardingParameterRow("От категории", percentText(subcategory.percentage), titleFont: .subheadline, valueFont: .subheadline.weight(.semibold))
-                    onboardingParameterRow("Дефицит", currency(subcategory.deficitAmount), valueColor: deficitColor, titleFont: .subheadline, valueFont: .subheadline.weight(.semibold))
-                }
-
-                Divider()
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Плановые параметры")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-
-                    onboardingParameterRow("Минимум", currency(subcategory.minLimit ?? 0))
-                    onboardingParameterRow("Максимум", maxLimitText(for: subcategory))
-                    onboardingParameterRow("Плановый", percentText(subcategory.basePercentage))
-                }
-            }
-
         }
         .padding()
         .background(AppTheme.cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 14))
+        .opacity(isInactiveRecommendation ? 0.6 : 1)
         .contentShape(RoundedRectangle(cornerRadius: 14))
         .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                toggleOnboardingCardExpansion(key: cardKey)
+            guard descriptor.isRecommended else { return }
+            _ = withAnimation(.easeInOut(duration: 0.2)) {
+                if descriptor.isActive {
+                    selectedRecommendationKeys.remove(descriptor.systemKey)
+                } else {
+                    selectedRecommendationKeys.insert(descriptor.systemKey)
+                }
             }
         }
     }
@@ -586,7 +589,8 @@ struct StartOnboardingFlowView: View {
             hasCredit: hasCredit,
             creditMonthlyPayment: parsedDouble(creditPaymentInput),
             strategy: strategy,
-            customCards: []
+            customCards: [],
+            selectedRecommendationKeys: Array(selectedRecommendationKeys).sorted { $0.rawValue < $1.rawValue }
         )
     }
 
@@ -687,4 +691,11 @@ struct StartOnboardingFlowView: View {
             return nil
         }
     }
+}
+
+private struct OnboardingDisplayedCard: Identifiable {
+    let descriptor: StartSystemCardDescriptor
+    let allocation: SubcategoryAllocation?
+
+    var id: String { descriptor.id }
 }

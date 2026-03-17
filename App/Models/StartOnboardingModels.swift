@@ -121,6 +121,7 @@ struct StartOnboardingDraft: Hashable {
     var creditMonthlyPayment: Double = 0
     var strategy: StartStrategyType = .stability
     var customCards: [StartCustomCardInput] = []
+    var selectedRecommendationKeys: [SystemSubcategoryKey] = []
 
     func resolvedInput() -> StartOnboardingInput {
         StartOnboardingInput(
@@ -136,7 +137,8 @@ struct StartOnboardingDraft: Hashable {
             hasCredit: hasCredit,
             creditMonthlyPayment: creditMonthlyPayment,
             strategy: strategy,
-            customCards: customCards
+            customCards: customCards,
+            selectedRecommendationKeys: selectedRecommendationKeys
         )
     }
 }
@@ -155,6 +157,7 @@ struct StartOnboardingInput: Codable, Hashable {
     let creditMonthlyPayment: Double
     let strategy: StartStrategyType
     let customCards: [StartCustomCardInput]
+    let selectedRecommendationKeys: [SystemSubcategoryKey]
 
     init(
         monthlyIncome: Double,
@@ -169,7 +172,8 @@ struct StartOnboardingInput: Codable, Hashable {
         hasCredit: Bool,
         creditMonthlyPayment: Double,
         strategy: StartStrategyType,
-        customCards: [StartCustomCardInput]
+        customCards: [StartCustomCardInput],
+        selectedRecommendationKeys: [SystemSubcategoryKey] = []
     ) {
         self.monthlyIncome = max(0, monthlyIncome)
         self.capital = capital
@@ -184,6 +188,7 @@ struct StartOnboardingInput: Codable, Hashable {
         self.creditMonthlyPayment = hasCredit ? max(0, creditMonthlyPayment) : 0
         self.strategy = strategy
         self.customCards = Self.normalizedCustomCards(customCards)
+        self.selectedRecommendationKeys = Array(Set(selectedRecommendationKeys)).sorted { $0.rawValue < $1.rawValue }
     }
 
     var adultDependentsCount: Int {
@@ -224,12 +229,19 @@ struct StartOnboardingInput: Codable, Hashable {
 
 struct StartSystemCardDescriptor: Identifiable, Hashable {
     let categoryType: ExpenseCategoryType
+    let systemKey: SystemSubcategoryKey
     let name: String
     let iconName: String
     let note: String?
+    let basePercentage: Double
+    let minLimit: Double
+    let maxLimit: Double?
+    let priority: SubcategoryPriorityLevel
+    let isRecommended: Bool
+    let isActive: Bool
 
     var id: String {
-        "\(categoryType.rawValue)::\(name)"
+        "\(categoryType.rawValue)::\(systemKey.rawValue)"
     }
 }
 

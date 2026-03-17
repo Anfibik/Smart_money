@@ -1167,6 +1167,7 @@ final class BudgetViewModel: ObservableObject {
                     id: subcategory.id,
                     name: subcategory.name,
                     isSystem: subcategory.isSystem,
+                    systemKey: subcategory.systemKey,
                     iconName: subcategory.iconName,
                     basePercentage: subcategory.percentage,
                     fixedMinimumPercentage: subcategory.fixedMinimumPercentage,
