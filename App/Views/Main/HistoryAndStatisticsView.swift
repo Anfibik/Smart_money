@@ -1,5 +1,4 @@
 import SwiftUI
-import Charts
 
 struct HistoryAndStatisticsView: View {
     @StateObject private var viewModel: HistoryAndStatisticsViewModel
@@ -20,14 +19,13 @@ struct HistoryAndStatisticsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 periodControlsCard
                 summaryGrid
-                timelineCard
                 analyticsCard
                 historyCard
             }
             .padding()
         }
         .background(AppTheme.appBackground.ignoresSafeArea())
-        .navigationTitle("История и статистика")
+        .navigationTitle("Статистика")
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -117,50 +115,6 @@ struct HistoryAndStatisticsView: View {
         .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 
-    private var timelineCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Динамика по времени")
-                .font(.headline)
-
-            if viewModel.summary.timelineBuckets.isEmpty {
-                emptyBlock(text: "За выбранный период нет доходов и расходов.")
-            } else {
-                HStack(spacing: 12) {
-                    legendDot(color: .green, title: "Доходы")
-                    legendDot(color: .red, title: "Расходы")
-                }
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    Chart(viewModel.summary.timelineBuckets) { bucket in
-                        BarMark(
-                            x: .value("Период", bucket.label),
-                            y: .value("Сумма", bucket.income)
-                        )
-                        .position(by: .value("Тип", "Доходы"))
-                        .foregroundStyle(Color.green.gradient)
-
-                        BarMark(
-                            x: .value("Период", bucket.label),
-                            y: .value("Сумма", bucket.expense)
-                        )
-                        .position(by: .value("Тип", "Расходы"))
-                        .foregroundStyle(Color.red.gradient)
-                    }
-                    .frame(
-                        width: max(340, CGFloat(viewModel.summary.timelineBuckets.count) * 34),
-                        height: 220
-                    )
-                    .chartYAxis {
-                        AxisMarks(position: .leading)
-                    }
-                }
-            }
-        }
-        .padding()
-        .background(AppTheme.panelBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-    }
-
     private var analyticsCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Аналитика расходов")
@@ -183,17 +137,11 @@ struct HistoryAndStatisticsView: View {
             }
 
             analyticsSection(
-                title: "Топ-5 карточек",
-                isEmpty: viewModel.summary.topExpenseSubcategories.isEmpty
+                title: "Карточки за период",
+                isEmpty: viewModel.summary.expenseSubcategoriesByCategory.isEmpty
             ) {
-                ForEach(viewModel.summary.topExpenseSubcategories) { line in
-                    statLine(
-                        title: line.title,
-                        subtitle: percentageText(line.share),
-                        amount: line.amount,
-                        tint: .pink,
-                        iconName: line.iconName
-                    )
+                ForEach(viewModel.summary.expenseSubcategoriesByCategory) { section in
+                    subcategoryStatsSection(section)
                 }
             }
         }
@@ -331,17 +279,6 @@ struct HistoryAndStatisticsView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
-    private func legendDot(color: Color, title: String) -> some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(color)
-                .frame(width: 8, height: 8)
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
     private func analyticsSection<Content: View>(
         title: String,
         isEmpty: Bool,
@@ -355,6 +292,34 @@ struct HistoryAndStatisticsView: View {
                 emptyBlock(text: "Недостаточно данных для отображения.")
             } else {
                 VStack(spacing: 10, content: content)
+            }
+        }
+    }
+
+    private func subcategoryStatsSection(_ section: BudgetSubcategoryStatSection) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(section.title)
+                    .font(.subheadline.weight(.semibold))
+
+                Spacer()
+
+                Text("\(currency(section.amount)) • \(percentageText(section.share))")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 2)
+
+            VStack(spacing: 8) {
+                ForEach(section.subcategories) { line in
+                    statLine(
+                        title: line.title,
+                        subtitle: percentageText(line.share),
+                        amount: line.amount,
+                        tint: .pink,
+                        iconName: line.iconName
+                    )
+                }
             }
         }
     }
@@ -389,12 +354,15 @@ struct HistoryAndStatisticsView: View {
             }
 
             GeometryReader { geometry in
+                let width = max(0, geometry.size.width)
+                let ratio = normalizedBarRatio(amount: amount)
+
                 ZStack(alignment: .leading) {
                     Capsule()
                         .fill(AppTheme.cardBackground)
                     Capsule()
                         .fill(tint.opacity(0.75))
-                        .frame(width: max(6, geometry.size.width * CGFloat(min(1, amount == 0 ? 0 : amount / max(amount, viewModel.summary.totalExpense)))))
+                        .frame(width: ratio > 0 ? max(6, width * CGFloat(ratio)) : 0)
                 }
             }
             .frame(height: 8)
@@ -402,6 +370,16 @@ struct HistoryAndStatisticsView: View {
         .padding()
         .background(AppTheme.cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func normalizedBarRatio(amount: Double) -> Double {
+        guard amount.isFinite, amount > 0 else { return 0 }
+
+        let totalExpense = viewModel.summary.totalExpense
+        let denominator = max(amount, totalExpense)
+        guard denominator.isFinite, denominator > 0 else { return 0 }
+
+        return min(1, max(0, amount / denominator))
     }
 
     private func historyRow(for event: BudgetHistoryEvent) -> some View {
@@ -454,6 +432,146 @@ struct HistoryAndStatisticsView: View {
 
     private func percentageText(_ share: Double) -> String {
         "\(Int((share * 100).rounded()))%"
+    }
+
+    private func eventAmountText(for event: BudgetHistoryEvent) -> String {
+        let prefix: String
+        switch event.type {
+        case .income:
+            prefix = "+"
+        case .expense:
+            prefix = "-"
+        case .transferToFreeCapital, .transferFromFreeCapital, .categoryReallocation:
+            prefix = ""
+        }
+        return "\(prefix)\(currency(event.amount))"
+    }
+
+    private func eventColor(for event: BudgetHistoryEvent) -> Color {
+        switch event.type {
+        case .income:
+            return .green
+        case .expense:
+            return .red
+        case .transferToFreeCapital, .transferFromFreeCapital, .categoryReallocation:
+            return .blue
+        }
+    }
+}
+
+struct BudgetHistoryView: View {
+    @ObservedObject var budgetViewModel: BudgetViewModel
+    @State private var pendingEventToRevert: BudgetHistoryEvent?
+    @State private var isShowingRevertConfirmation = false
+    @State private var isShowingRevertFailure = false
+
+    private var recentEvents: [BudgetHistoryEvent] {
+        Array(budgetViewModel.historyEvents.prefix(5))
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if recentEvents.isEmpty {
+                    emptyBlock(text: "Операций пока нет.")
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(Array(recentEvents.enumerated()), id: \.element.id) { index, event in
+                            historyRow(for: event)
+
+                            if index < recentEvents.count - 1 {
+                                Divider()
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .background(AppTheme.cardBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+            }
+            .padding()
+        }
+        .background(AppTheme.appBackground.ignoresSafeArea())
+        .navigationTitle("История")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert("Удалить операцию?", isPresented: $isShowingRevertConfirmation) {
+            Button("Отмена", role: .cancel) {}
+            Button("Удалить", role: .destructive) {
+                guard let event = pendingEventToRevert else { return }
+                if !budgetViewModel.revertHistoryEvent(id: event.id) {
+                    isShowingRevertFailure = true
+                }
+                pendingEventToRevert = nil
+            }
+        } message: {
+            Text("Показатели будут возвращены к состоянию без выбранной операции.")
+        }
+        .alert("Операцию нельзя удалить", isPresented: $isShowingRevertFailure) {
+            Button("ОК", role: .cancel) {}
+        } message: {
+            Text("Для этой записи нет данных отката или связанные карточки уже изменены.")
+        }
+    }
+
+    private func historyRow(for event: BudgetHistoryEvent) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: event.displayIconName)
+                .font(.title3)
+                .foregroundStyle(eventColor(for: event))
+                .frame(width: 34, height: 34)
+                .background(eventColor(for: event).opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(event.displayTitle)
+                    .font(.subheadline.weight(.semibold))
+
+                if let subtitle = event.displaySubtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Text(event.createdAt.formatted(date: .numeric, time: .shortened))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Text(eventAmountText(for: event))
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(eventColor(for: event))
+
+            Button(role: .destructive) {
+                pendingEventToRevert = event
+                isShowingRevertConfirmation = true
+            } label: {
+                Image(systemName: "trash")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(event.canUndo ? Color.red : Color.secondary)
+            .disabled(!event.canUndo)
+            .accessibilityLabel("Удалить операцию")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+    }
+
+    private func emptyBlock(text: String) -> some View {
+        Text(text)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
+            .background(AppTheme.cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func currency(_ value: Double) -> String {
+        AppCurrencyFormatter.string(value, currencyCode: budgetViewModel.settings.currencyCode)
     }
 
     private func eventAmountText(for event: BudgetHistoryEvent) -> String {

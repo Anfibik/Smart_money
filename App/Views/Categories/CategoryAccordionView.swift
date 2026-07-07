@@ -6,11 +6,11 @@ struct CategoryAccordionView: View {
     let currencyCode: String
     let lastIncomeAmount: Double
     let bankAvailableAmount: Double
-    let onPayExpense: (ExpenseCategoryType, UUID, Double, Bool) -> Void
+    let onPayExpense: (ExpenseCategoryType, UUID, Double, ExpenseFundingStrategy) -> Void
     let expenseCoverageRequirement: (ExpenseCategoryType, UUID, Double) -> CategoryCoverageRequirement?
-    let expenseAutomaticBankCoverageAmount: (ExpenseCategoryType, UUID, Double) -> Double
-    let onPayExpenseWithAutomaticForcedCoverage: (ExpenseCategoryType, UUID, Double) -> Void
-    let onPayExpenseWithManualForcedCoverage: (ExpenseCategoryType, UUID, Double, [UUID: Double]) -> Void
+    let expenseFundingPreview: (ExpenseCategoryType, UUID, Double, ExpenseFundingStrategy) -> ExpenseFundingPreview?
+    let onPayExpenseWithAutomaticForcedCoverage: (ExpenseCategoryType, UUID, Double, ExpenseFundingStrategy) -> Void
+    let onPayExpenseWithManualForcedCoverage: (ExpenseCategoryType, UUID, Double, [UUID: Double], ExpenseFundingStrategy) -> Void
     let onAddSubcategory: (
         ExpenseCategoryType,
         String,
@@ -59,12 +59,12 @@ struct CategoryAccordionView: View {
     @State private var addSubcategoryTarget: AddSubcategoryTarget?
     @State private var editSubcategoryTarget: EditSubcategoryTarget?
     @State private var expenseInput: String = ""
+    @State private var expenseFundingStrategy: ExpenseFundingStrategy = .categoryFirst
     @State private var subcategoryNameInput: String = ""
     @State private var subcategoryPercentInput: String = ""
     @State private var subcategoryMinAmountInput: String = ""
     @State private var subcategoryMaxAmountInput: String = ""
     @State private var subcategoryIconName: String = SubcategoryIconCatalog.selectableSymbols.first ?? SubcategoryIconCatalog.fallbackSymbol
-    @State private var useBankForExpense: Bool = false
     @State private var editNameInput: String = ""
     @State private var editPercentInput: String = ""
     @State private var editMinAmountInput: String = ""
@@ -79,11 +79,11 @@ struct CategoryAccordionView: View {
         currencyCode: String,
         lastIncomeAmount: Double,
         bankAvailableAmount: Double,
-        onPayExpense: @escaping (ExpenseCategoryType, UUID, Double, Bool) -> Void,
+        onPayExpense: @escaping (ExpenseCategoryType, UUID, Double, ExpenseFundingStrategy) -> Void,
         expenseCoverageRequirement: @escaping (ExpenseCategoryType, UUID, Double) -> CategoryCoverageRequirement?,
-        expenseAutomaticBankCoverageAmount: @escaping (ExpenseCategoryType, UUID, Double) -> Double,
-        onPayExpenseWithAutomaticForcedCoverage: @escaping (ExpenseCategoryType, UUID, Double) -> Void,
-        onPayExpenseWithManualForcedCoverage: @escaping (ExpenseCategoryType, UUID, Double, [UUID: Double]) -> Void,
+        expenseFundingPreview: @escaping (ExpenseCategoryType, UUID, Double, ExpenseFundingStrategy) -> ExpenseFundingPreview?,
+        onPayExpenseWithAutomaticForcedCoverage: @escaping (ExpenseCategoryType, UUID, Double, ExpenseFundingStrategy) -> Void,
+        onPayExpenseWithManualForcedCoverage: @escaping (ExpenseCategoryType, UUID, Double, [UUID: Double], ExpenseFundingStrategy) -> Void,
         onAddSubcategory: @escaping (
             ExpenseCategoryType,
             String,
@@ -133,7 +133,7 @@ struct CategoryAccordionView: View {
         self.bankAvailableAmount = bankAvailableAmount
         self.onPayExpense = onPayExpense
         self.expenseCoverageRequirement = expenseCoverageRequirement
-        self.expenseAutomaticBankCoverageAmount = expenseAutomaticBankCoverageAmount
+        self.expenseFundingPreview = expenseFundingPreview
         self.onPayExpenseWithAutomaticForcedCoverage = onPayExpenseWithAutomaticForcedCoverage
         self.onPayExpenseWithManualForcedCoverage = onPayExpenseWithManualForcedCoverage
         self.onAddSubcategory = onAddSubcategory
@@ -158,9 +158,9 @@ struct CategoryAccordionView: View {
     var body: some View {
         VStack(spacing: 8) {
             ForEach(distribution.categoryAllocations) { category in
-                let categorySpent = category.subcategoryAllocations.reduce(0) { $0 + $1.spentAmount }
                 let categoryRemaining = category.subcategoryAllocations.reduce(0) { $0 + $1.remainingAmount }
-                let categoryLastIncome = lastIncomeAmount * (category.percentage / 100.0)
+                let categoryMonthlyIncome = category.subcategoryAllocations.reduce(0) { $0 + $1.monthlyIncomeDistributionAmount }
+                let categoryMonthlyExpense = category.subcategoryAllocations.reduce(0) { $0 + $1.monthlyExpenseAmount }
                 let isCategoryExpanded = isExpanded(category.id)
 
                 VStack(spacing: 0) {
@@ -168,8 +168,8 @@ struct CategoryAccordionView: View {
                         category: category,
                         currencyCode: currencyCode,
                         categoryRemaining: categoryRemaining,
-                        categorySpent: categorySpent,
-                        categoryLastIncome: categoryLastIncome,
+                        categoryMonthlyExpense: categoryMonthlyExpense,
+                        categoryMonthlyIncome: categoryMonthlyIncome,
                         isExpanded: isCategoryExpanded,
                         useCompactLayout: hasExpandedCategory,
                         onTap: { toggle(categoryID: category.id) }
@@ -219,10 +219,11 @@ struct CategoryAccordionView: View {
                 target.subcategoryID,
                 nonNegativeValue(from: expenseInput)
             )
-            let automaticBankCoverageAmount = expenseAutomaticBankCoverageAmount(
+            let fundingPreview = expenseFundingPreview(
                 target.categoryType,
                 target.subcategoryID,
-                nonNegativeValue(from: expenseInput)
+                nonNegativeValue(from: expenseInput),
+                expenseFundingStrategy
             )
 
             ExpenseSheetView(
@@ -230,18 +231,19 @@ struct CategoryAccordionView: View {
                 currencyCode: currencyCode,
                 bankAvailableAmount: bankAvailableAmount,
                 coverageRequirement: coverageRequirement,
-                automaticBankCoverageAmount: automaticBankCoverageAmount,
+                fundingPreview: fundingPreview,
                 expenseInput: $expenseInput,
-                onPay: { amount, useBankIfNeeded in
-                    onPayExpense(target.categoryType, target.subcategoryID, amount, useBankIfNeeded)
+                fundingStrategy: $expenseFundingStrategy,
+                onPay: { amount, fundingStrategy in
+                    onPayExpense(target.categoryType, target.subcategoryID, amount, fundingStrategy)
                     expenseTarget = nil
                 },
-                onAutoForcedPay: { amount in
-                    onPayExpenseWithAutomaticForcedCoverage(target.categoryType, target.subcategoryID, amount)
+                onAutoForcedPay: { amount, fundingStrategy in
+                    onPayExpenseWithAutomaticForcedCoverage(target.categoryType, target.subcategoryID, amount, fundingStrategy)
                     expenseTarget = nil
                 },
-                onManualForcedPay: { amount, allocations in
-                    onPayExpenseWithManualForcedCoverage(target.categoryType, target.subcategoryID, amount, allocations)
+                onManualForcedPay: { amount, allocations, fundingStrategy in
+                    onPayExpenseWithManualForcedCoverage(target.categoryType, target.subcategoryID, amount, allocations, fundingStrategy)
                     expenseTarget = nil
                 },
                 onCancel: {
@@ -371,7 +373,7 @@ struct CategoryAccordionView: View {
             currentAmount: subcategory.remainingAmount
         )
         expenseInput = ""
-        useBankForExpense = true
+        expenseFundingStrategy = .categoryFirst
     }
 
     private func openEditSubcategorySheet(for categoryType: ExpenseCategoryType, subcategory: SubcategoryAllocation) {

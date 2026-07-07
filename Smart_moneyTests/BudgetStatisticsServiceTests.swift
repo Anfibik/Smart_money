@@ -8,10 +8,7 @@ final class BudgetStatisticsServiceTests: XCTestCase {
         super.setUp()
         calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
-        service = BudgetStatisticsService(
-            calendar: calendar,
-            locale: Locale(identifier: "ru_RU")
-        )
+        service = BudgetStatisticsService(calendar: calendar)
     }
 
     func testMonthSummaryExcludesTransfersFromFinancialStatistics() {
@@ -54,13 +51,7 @@ final class BudgetStatisticsServiceTests: XCTestCase {
             selectedYear: nil,
             now: makeDate(year: 2026, month: 3, day: 10)
         )
-        let summary = service.buildSummary(
-            from: periodEvents,
-            mode: .month,
-            selectedMonth: HistoryMonthOption(year: 2026, month: 3),
-            selectedYear: nil,
-            now: makeDate(year: 2026, month: 3, day: 10)
-        )
+        let summary = service.buildSummary(from: periodEvents)
 
         XCTAssertEqual(periodEvents.count, 3)
         XCTAssertEqual(summary.totalIncome, 1000, accuracy: 0.0001)
@@ -68,8 +59,11 @@ final class BudgetStatisticsServiceTests: XCTestCase {
         XCTAssertEqual(summary.netResult, 800, accuracy: 0.0001)
         XCTAssertEqual(summary.transferOperationsCount, 1)
         XCTAssertEqual(summary.operationCount, 3)
-        XCTAssertEqual(summary.topExpenseSubcategories.first?.title, "Питание")
         XCTAssertEqual(summary.expenseByCategory.first?.title, "Основные")
+        XCTAssertEqual(summary.expenseSubcategoriesByCategory.first?.title, "Основные")
+        XCTAssertEqual(summary.expenseSubcategoriesByCategory.first?.subcategories.first?.title, "Питание")
+        let foodAmount = summary.expenseSubcategoriesByCategory.first?.subcategories.first?.amount
+        XCTAssertEqual(foodAmount ?? 0, 200, accuracy: 0.0001)
     }
 
     func testYearSummaryAggregatesAcrossSelectedCalendarYear() {
@@ -119,19 +113,42 @@ final class BudgetStatisticsServiceTests: XCTestCase {
             selectedYear: 2026,
             now: makeDate(year: 2026, month: 11, day: 20)
         )
-        let summary = service.buildSummary(
-            from: periodEvents,
-            mode: .year,
-            selectedMonth: nil,
-            selectedYear: 2026,
-            now: makeDate(year: 2026, month: 11, day: 20)
-        )
+        let summary = service.buildSummary(from: periodEvents)
 
         XCTAssertEqual(periodEvents.count, 3)
         XCTAssertEqual(summary.totalIncome, 2000, accuracy: 0.0001)
         XCTAssertEqual(summary.totalExpense, 800, accuracy: 0.0001)
         XCTAssertEqual(summary.largestExpense, 500, accuracy: 0.0001)
-        XCTAssertEqual(summary.timelineBuckets.count, 12)
+        XCTAssertEqual(summary.expenseSubcategoriesByCategory.map(\.title), ["Накопления", "Основные"])
+    }
+
+    func testSubcategoryStatisticsIncludeAllExpenseCardsGroupedByCategory() {
+        let events = (1...6).map { index in
+            BudgetHistoryEvent(
+                createdAt: makeDate(year: 2026, month: 3, day: index),
+                type: .expense,
+                amount: Double(index * 10),
+                currencyCode: "UAH",
+                categoryType: .essentials,
+                categoryTitleSnapshot: "Основные",
+                subcategoryID: UUID(),
+                subcategoryNameSnapshot: "Карточка \(index)",
+                iconNameSnapshot: "creditcard.fill"
+            )
+        }
+
+        let periodEvents = service.eventsForSelectedPeriod(
+            from: events,
+            mode: .month,
+            selectedMonth: HistoryMonthOption(year: 2026, month: 3),
+            selectedYear: nil,
+            now: makeDate(year: 2026, month: 3, day: 10)
+        )
+        let summary = service.buildSummary(from: periodEvents)
+
+        XCTAssertEqual(summary.expenseSubcategoriesByCategory.count, 1)
+        XCTAssertEqual(summary.expenseSubcategoriesByCategory.first?.subcategories.count, 6)
+        XCTAssertEqual(summary.expenseSubcategoriesByCategory.first?.subcategories.first?.title, "Карточка 6")
     }
 
     func testAvailableMonthsAndYearsBuildContinuousSelections() {

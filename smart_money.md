@@ -275,6 +275,19 @@ Important:
   - editing a card
   - entering an expense
 
+### 6.5 Theme
+
+`App/Resources/Theme/AppTheme.swift`
+- centralized visual palette for the app
+- current active look is a dark graphite theme with a mint accent, warm warning color, and pink-red danger color
+
+`App/Assets.xcassets/AccentColor.colorset`
+- stores the system accent color used by `.tint(...)`
+
+Important:
+- the onboarding currently uses the same dark `AppTheme` palette as the rest of the app
+- there is no separate light onboarding theme at the moment
+
 ## 7. Core business logic
 
 ### 7.1 Main categories
@@ -326,9 +339,9 @@ Current priority levels:
 
 Current rule set:
 - `High`: exactly one system card per main category
-- `Essentials`: `Housing`
+- `Essentials`: `Housing` for rented housing, `Food` for owned housing
 - `Wants`: `Shopping`
-- `Savings`: `Emergency Fund`
+- `Savings`: `Debt` if debt exists, otherwise `Emergency Fund`
 - all other system cards are `Medium`
 - all user-created cards are always `Low`
 
@@ -348,7 +361,8 @@ It is used in several ways:
 - onboarding minimum deficits can be covered from it automatically
 
 There is also a special rule:
-- the emergency reserve card is topped up from `Free Capital` first whenever possible
+- the emergency reserve card is topped up from `Free Capital` only when debt does not still need funding
+- if a debt card exists and is still below its minimum, `Free Capital` does not auto-top-up the emergency reserve
 
 ### 7.5 Expenses
 
@@ -384,22 +398,29 @@ The onboarding is implemented in `App/Views/Main/StartOnboardingFlowView.swift`.
 The current flow has 5 steps:
 1. finances and housing
 2. family and obligations
-3. system cards and custom cards
-4. strategy selection
+3. strategy selection
+4. cards preview and recommendations
 5. final summary
+
+Important implementation note:
+- the current onboarding is still a single SwiftUI view with local `@State`
+- there is no separate `StartOnboardingViewModel`
+- there is no enum-based step state machine yet
 
 ### 8.2 Onboarding input data
 
 The startup flow currently collects:
-- average monthly income for the last year
+- average monthly income
 - current capital, which can be positive or negative
 - housing type
 - housing cost
-- number of cars
+- whether the user has a car
 - number of adult dependents
-- number of children under 16
+- number of elderly dependents
+- number of children under 12
+- number of pets
 - whether there is a credit payment and its monthly amount
-- custom cards
+- recommended onboarding cards selected by the user
 - strategy
 
 ### 8.3 Strategies
@@ -415,15 +436,26 @@ The order is always:
 ### 8.4 System cards created by onboarding
 
 Always created:
-- `Essentials`: `Housing`, `Food`, `Health`, `Hygiene`
-- `Wants`: `Shopping`, `Hobby`, `Entertainment`
+- `Essentials`: `Housing`, `Food`, `Health`, `Hygiene`, `Transport`
+- `Wants`: `Shopping`, `Entertainment`
 - `Savings`: `Emergency Fund`
 
 Conditionally created:
 - `Essentials`: `Children`, if children > 0
-- `Essentials`: `Transport`, if cars > 0
+- `Essentials`: `Animals`, if pets > 0
 - `Savings`: `Debt`, if capital is negative
 - `Savings`: `Credit`, if credit is enabled
+
+Also available as onboarding recommendations:
+- `Wants`: `Hobby`, `Travel`, `Restaurants`, `Gifts`, `Sport`, `Beauty`, `Subscriptions`
+- `Savings`: `Investments`, `Business`, `Currency`
+
+Current step-4 behavior:
+- categories are split into `Current` and `Recommended`
+- recommended cards are shown dimmed
+- tapping a recommended card activates it
+- tapping it again returns it to the inactive recommended state
+- onboarding does **not** currently support adding custom cards in step 4
 
 ### 8.5 Minimums currently calculated by onboarding
 
@@ -432,16 +464,18 @@ Key formulas in `StartOnboardingBuilder`:
 `Housing`
 - the user enters the base housing amount
 - minimum = entered amount * `1.10`
-- base percentage inside `Essentials` = `30%` for rented housing, `10%` for owned housing
+- base percentage inside `Essentials` = `25%` for rented housing, `10%` for owned housing
+- priority = `High` for rented housing, `Medium` for owned housing
 
 `Food`
-- percentage inside `Essentials`: `20 + 5 * adult dependents + 4 * children`
+- percentage inside `Essentials`: `20 + 4 * adult dependents + 2 * children`
 - money minimum:
   - `8000 * (1 + 0.8 * adult dependents)`
   - plus `5000 * children`
+- if housing is owned, `Food` becomes the `High` priority essentials card
 
 `Health`
-- percentage inside `Essentials`: `5 + 0.5 * adult dependents + 1.5 * children`
+- percentage inside `Essentials`: `3 + 0.5 * adult dependents + 1 * children + 5 * elderly dependents`
 - minimum = the maximum of:
   - the percentage-based amount
   - `500 * total number of people`
@@ -456,62 +490,65 @@ Key formulas in `StartOnboardingBuilder`:
 - base percentage inside `Essentials` = `10%`
 - minimum = `10%` of the `Essentials` category budget
 
+`Animals`
+- created only if pets > 0
+- base percentage inside `Essentials` = `5%`
+- minimum = `1000 * pets count`
+
 `Transport`
-- created if cars > 0
-- base percentage inside `Essentials` = `10%`
-- minimum = `10%` of the `Essentials` category budget
+- always created
+- base percentage inside `Essentials` = `15%` if the user has a car, otherwise `5%`
+- minimum = `2000 UAH` with a car, otherwise `1000 UAH`
+- icon changes between car and public transport based on the flag
 
 `Shopping`
-- base percentage inside `Wants` = `30%`
-- minimum = `max(500, wantsBudget * 0.30)`
-
-`Hobby`
-- base percentage inside `Wants` = `20%`
-- minimum = `max(500, wantsBudget * 0.20)`
+- base percentage inside `Wants` = `15%`
+- minimum = `500 UAH`
 
 `Entertainment`
-- base percentage inside `Wants` = `20%`
-- minimum = `wantsBudget * 0.20`
+- display name in UI is `Leisure / Досуг`
+- base percentage inside `Wants` = `10%`
+- minimum = `1000 UAH`
+
+Other current `Wants` recommendations:
+- `Hobby`: `5%`, minimum `1000 UAH`
+- `Travel`: `10%`, minimum `1000 UAH`
+- `Restaurants`: `20%`, minimum `2000 UAH`
+- `Gifts`: `5%`, minimum `500 UAH`
+- `Sport`: `20%`, minimum `500 UAH`
+- `Beauty`: `5%`, minimum `500 UAH`
+- `Subscriptions`: `5%`, minimum `200 UAH`
 
 `Emergency Fund`
 - reserve target = `6 months` of mandatory living costs
 - `minLimit` is set to the full 6-month target
 - `maxLimit` is set to `12 months` of mandatory living costs
 - current positive capital is then applied immediately from `Free Capital`
+- base percentage inside `Savings` = `50%`
+- priority = `High` only if there is no debt card
+
+Other current `Savings` recommendations:
+- `Investments`: `10%`, minimum `5000 UAH`
+- `Business`: `20%`, minimum `10000 UAH`
+- `Currency`: `20%`, minimum `2000 UAH`
 
 `Debt`
 - appears when capital is negative
-- base percentage inside `Savings` = `50%`
-- minimum = `max(50% of savings budget, abs(negative capital) / 24)`
+- base percentage inside `Savings` = `100%`
+- minimum = full debt amount
+- maximum = full debt amount
+- priority = `High`
+- debt is excluded from:
+  - `monthlyMinimumExcludingEmergency`
+  - emergency reserve target calculation
+- while debt still needs funding, the emergency reserve is not auto-topped from `Free Capital`
 
 `Credit`
 - appears when credit is enabled
 - base percentage inside `Savings` = `10%`
 - minimum = `max(monthly payment, 10% of savings budget)`
 
-### 8.6 Custom cards in onboarding
-
-At step 3:
-- system cards are displayed only
-- custom cards are added separately
-
-Current behavior:
-- creation happens in a dedicated popup `sheet`
-- the creation form is no longer inline on the main step screen
-- after saving, the card appears in its category list next to system cards
-- a custom card can be edited through the same popup
-- a custom card can be deleted
-
-Custom card fields:
-- name
-- icon
-- minimum amount
-- percentage inside category (optional)
-
-If percentage is not provided:
-- the builder derives it from the minimum relative to the category budget
-
-### 8.7 Applying onboarding
+### 8.6 Applying onboarding
 
 When the user completes onboarding:
 - the builder creates `StartOnboardingConfiguration`
@@ -650,7 +687,7 @@ After that:
 3. `DashboardView` is not currently the main product screen.
 4. A lot of logic is concentrated in `BudgetViewModel`; if the app grows further, splitting use cases into more services may become necessary.
 5. `SettingsViewModel` and some older infrastructure still exist, but the active product flow now goes through `BudgetViewModel + StartOnboardingBuilder + BudgetAllocationEngine`.
-6. Several onboarding and engine rules still rely on exact system card names in Russian, especially the emergency reserve card `Подушка`.
+6. The onboarding is feature-rich, but the current implementation is still concentrated in one large `StartOnboardingFlowView`; there is no dedicated onboarding view model or enum-driven state machine yet.
 
 ## 13. Tests
 
@@ -658,6 +695,8 @@ Current unit tests:
 - `Smart_moneyTests/BudgetAllocationEngineTests.swift`
 - `Smart_moneyTests/BudgetHistoryStorageTests.swift`
 - `Smart_moneyTests/BudgetStatisticsServiceTests.swift`
+- `Smart_moneyTests/StartOnboardingBuilderTests.swift`
+- `Smart_moneyTests/SubcategoryTests.swift`
 
 What is already covered:
 - core allocation engine behavior
@@ -668,6 +707,8 @@ What is already covered:
 - building available months and years
 - filtering history by period
 - excluding transfers from financial statistics
+- onboarding builder rules for debt/emergency reserve
+- stable `systemKey` behavior independent of display names
 
 ## 14. Key files for future development
 

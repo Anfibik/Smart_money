@@ -193,7 +193,7 @@ struct EditSubcategorySheetView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Отмена", action: onCancel)
+                    Button("Назад", action: onCancel)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()

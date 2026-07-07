@@ -58,10 +58,7 @@ final class HistoryAndStatisticsViewModel: ObservableObject {
         calendar: Calendar = .current,
         locale: Locale = .current
     ) {
-        self.statisticsService = statisticsService ?? BudgetStatisticsService(
-            calendar: calendar,
-            locale: locale
-        )
+        self.statisticsService = statisticsService ?? BudgetStatisticsService(calendar: calendar)
         self.calendar = calendar
         self.locale = locale
         self.currencyCode = budgetViewModel.settings.currencyCode
@@ -130,12 +127,7 @@ final class HistoryAndStatisticsViewModel: ObservableObject {
             selectedYear: selectedYear
         )
 
-        summary = statisticsService.buildSummary(
-            from: currentPeriodEvents,
-            mode: periodMode,
-            selectedMonth: selectedMonth,
-            selectedYear: selectedYear
-        )
+        summary = statisticsService.buildSummary(from: currentPeriodEvents)
 
         rebuildHistorySections()
     }

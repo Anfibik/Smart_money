@@ -13,23 +13,7 @@ struct CategoryExpandedContentView: View {
     private let gridColumns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
 
     var body: some View {
-        let categorySpent = category.subcategoryAllocations.reduce(0) { $0 + $1.spentAmount }
-        let categoryRemaining = category.subcategoryAllocations.reduce(0) { $0 + $1.remainingAmount }
-
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text("Текущая: \(currency(categoryRemaining))")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-
-                Spacer(minLength: 8)
-
-                Text("Расход: - \(currency(categorySpent))")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 2)
-
             LazyVGrid(columns: gridColumns, spacing: 8) {
                 ForEach(category.subcategoryAllocations) { subcategory in
                     SubcategoryCardView(
@@ -60,9 +44,5 @@ struct CategoryExpandedContentView: View {
         .padding(.bottom, 10)
         .padding(.top, 6)
         .clipped()
-    }
-
-    private func currency(_ value: Double) -> String {
-        AppCurrencyFormatter.string(value, currencyCode: currencyCode)
     }
 }

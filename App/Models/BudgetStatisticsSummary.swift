@@ -1,13 +1,5 @@
 import Foundation
 
-struct BudgetStatisticsBucket: Identifiable, Hashable {
-    let id: String
-    let startDate: Date
-    let label: String
-    let income: Double
-    let expense: Double
-}
-
 struct BudgetCategoryStatLine: Identifiable, Hashable {
     let id: String
     let title: String
@@ -23,6 +15,14 @@ struct BudgetSubcategoryStatLine: Identifiable, Hashable {
     let share: Double
 }
 
+struct BudgetSubcategoryStatSection: Identifiable, Hashable {
+    let id: String
+    let title: String
+    let amount: Double
+    let share: Double
+    let subcategories: [BudgetSubcategoryStatLine]
+}
+
 struct BudgetStatisticsSummary: Hashable {
     let totalIncome: Double
     let totalExpense: Double
@@ -34,8 +34,7 @@ struct BudgetStatisticsSummary: Hashable {
     let largestExpense: Double
     let averageExpense: Double
     let expenseByCategory: [BudgetCategoryStatLine]
-    let topExpenseSubcategories: [BudgetSubcategoryStatLine]
-    let timelineBuckets: [BudgetStatisticsBucket]
+    let expenseSubcategoriesByCategory: [BudgetSubcategoryStatSection]
 
     static let empty = BudgetStatisticsSummary(
         totalIncome: 0,
@@ -48,7 +47,6 @@ struct BudgetStatisticsSummary: Hashable {
         largestExpense: 0,
         averageExpense: 0,
         expenseByCategory: [],
-        topExpenseSubcategories: [],
-        timelineBuckets: []
+        expenseSubcategoriesByCategory: []
     )
 }

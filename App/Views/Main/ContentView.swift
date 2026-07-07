@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var didBootstrapInitialSetup = false
     @State private var isShowingResetSetupAlert = false
     @State private var isSideMenuOpen = false
+    @State private var isShowingHistory = false
     @State private var isShowingHistoryAndStatistics = false
     @AppStorage("has_completed_start_onboarding_v2") private var hasCompletedStartOnboarding = false
     @FocusState private var isIncomeFieldFocused: Bool
@@ -28,12 +29,12 @@ struct ContentView: View {
                                 currencyCode: budgetViewModel.settings.currencyCode,
                                 lastIncomeAmount: budgetViewModel.lastIncomeAmount,
                                 bankAvailableAmount: budgetViewModel.bankAvailableAmount,
-                                onPayExpense: { categoryType, subcategoryID, amount, useBankIfNeeded in
+                                onPayExpense: { categoryType, subcategoryID, amount, fundingStrategy in
                                     budgetViewModel.addExpense(
                                         categoryType: categoryType,
                                         subcategoryID: subcategoryID,
                                         amount: amount,
-                                        useBankIfNeeded: useBankIfNeeded
+                                        fundingStrategy: fundingStrategy
                                     )
                                 },
                                 expenseCoverageRequirement: { categoryType, subcategoryID, amount in
@@ -43,26 +44,29 @@ struct ContentView: View {
                                         amount: amount
                                     )
                                 },
-                                expenseAutomaticBankCoverageAmount: { categoryType, subcategoryID, amount in
-                                    budgetViewModel.expenseAutomaticBankCoverageAmount(
+                                expenseFundingPreview: { categoryType, subcategoryID, amount, fundingStrategy in
+                                    budgetViewModel.expenseFundingPreview(
                                         categoryType: categoryType,
                                         subcategoryID: subcategoryID,
-                                        amount: amount
+                                        amount: amount,
+                                        fundingStrategy: fundingStrategy
                                     )
                                 },
-                                onPayExpenseWithAutomaticForcedCoverage: { categoryType, subcategoryID, amount in
+                                onPayExpenseWithAutomaticForcedCoverage: { categoryType, subcategoryID, amount, fundingStrategy in
                                     budgetViewModel.addExpenseWithAutomaticForcedCoverage(
                                         categoryType: categoryType,
                                         subcategoryID: subcategoryID,
-                                        amount: amount
+                                        amount: amount,
+                                        fundingStrategy: fundingStrategy
                                     )
                                 },
-                                onPayExpenseWithManualForcedCoverage: { categoryType, subcategoryID, amount, allocations in
+                                onPayExpenseWithManualForcedCoverage: { categoryType, subcategoryID, amount, allocations, fundingStrategy in
                                     budgetViewModel.addExpenseWithManualForcedCoverage(
                                         categoryType: categoryType,
                                         subcategoryID: subcategoryID,
                                         amount: amount,
-                                        allocations: allocations
+                                        allocations: allocations,
+                                        fundingStrategy: fundingStrategy
                                     )
                                 },
                                 onAddSubcategory: { categoryType, name, iconName, percentage, minAmount, maxAmount, priority in
@@ -179,6 +183,9 @@ struct ContentView: View {
             .navigationDestination(isPresented: $isShowingHistoryAndStatistics) {
                 HistoryAndStatisticsView(budgetViewModel: budgetViewModel)
             }
+            .navigationDestination(isPresented: $isShowingHistory) {
+                BudgetHistoryView(budgetViewModel: budgetViewModel)
+            }
         }
         .fullScreenCover(isPresented: $isShowingInitialSetup) {
             StartOnboardingFlowView { configuration in
@@ -249,8 +256,13 @@ struct ContentView: View {
     private var sideMenuItems: [SideMenuItemDescriptor] {
         [
             SideMenuItemDescriptor(
-                id: "historyAndStatistics",
-                title: "История и статистика",
+                id: "history",
+                title: "История",
+                systemImage: "clock.arrow.circlepath"
+            ),
+            SideMenuItemDescriptor(
+                id: "statistics",
+                title: "Статистика",
                 systemImage: "chart.bar.xaxis"
             )
         ]
@@ -310,7 +322,9 @@ struct ContentView: View {
 
     private func handleSideMenuSelection(_ item: SideMenuItemDescriptor) {
         closeSideMenu()
-        if item.id == "historyAndStatistics" {
+        if item.id == "history" {
+            isShowingHistory = true
+        } else if item.id == "statistics" {
             isShowingHistoryAndStatistics = true
         }
     }

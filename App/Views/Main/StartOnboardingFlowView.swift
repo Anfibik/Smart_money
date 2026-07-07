@@ -73,7 +73,7 @@ struct StartOnboardingFlowView: View {
         VStack(alignment: .leading, spacing: 14) {
             fieldCard {
                 inputField(
-                    title: "Средний доход в месяц*",
+                    title: "Средний доход за месяц*",
                     text: $monthlyIncomeInput,
                     prompt: "Например, 120 000"
                 )
@@ -112,13 +112,13 @@ struct StartOnboardingFlowView: View {
     private var familyStep: some View {
         VStack(alignment: .leading, spacing: 14) {
             fieldCard {
-                Stepper("Количество взрослых иждивенцев: \(dependentsCount)", value: $dependentsCount, in: 0...12)
+                Stepper("Взрослые: \(dependentsCount)", value: $dependentsCount, in: 0...12)
 
-                Stepper("Количество иждивенцев стариков: \(elderlyDependentsCount)", value: $elderlyDependentsCount, in: 0...12)
+                Stepper("Стариков: \(elderlyDependentsCount)", value: $elderlyDependentsCount, in: 0...12)
 
-                Stepper("Количество детей до 12 лет: \(childrenCount)", value: $childrenCount, in: 0...12)
+                Stepper("Дети до 12 лет: \(childrenCount)", value: $childrenCount, in: 0...12)
 
-                Stepper("Количество домашних животных: \(petsCount)", value: $petsCount, in: 0...12)
+                Stepper("Домашние животныхе: \(petsCount)", value: $petsCount, in: 0...12)
 
                 Toggle("Есть авто", isOn: $hasCar)
 
@@ -301,6 +301,7 @@ struct StartOnboardingFlowView: View {
         let activeCards = displayedCards.filter { !$0.descriptor.isRecommended || $0.descriptor.isActive }
         let recommendedCards = displayedCards.filter { $0.descriptor.isRecommended && !$0.descriptor.isActive }
         let totalIncome = preview?.distribution.income ?? 0
+        let settledAmount = allocation.allocatedAmount
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -312,12 +313,8 @@ struct StartOnboardingFlowView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Text("\(currency(budget.monthlyAmount)) в месяц")
+            Text("Зачислено \(currency(settledAmount)) из \(currency(budget.monthlyAmount))")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            Text("Общий базовый процент категории: \(categoryBasePercentage(for: allocation), specifier: "%.2f")%")
-                .font(.caption)
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 10) {
@@ -397,7 +394,7 @@ struct StartOnboardingFlowView: View {
         .contentShape(RoundedRectangle(cornerRadius: 14))
         .onTapGesture {
             guard descriptor.isRecommended else { return }
-            _ = withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(.easeInOut(duration: 0.2)) {
                 if descriptor.isActive {
                     selectedRecommendationKeys.remove(descriptor.systemKey)
                 } else {
@@ -501,7 +498,7 @@ struct StartOnboardingFlowView: View {
         case 1:
             return "Финансы и жилье"
         case 2:
-            return "Семья и обязательства"
+            return "Иждивенцы"
         case 3:
             return "Выбор стратегии"
         case 4:
@@ -516,7 +513,7 @@ struct StartOnboardingFlowView: View {
         case 1:
             return "Введи данные для распределения стартового бюджета на потребности."
         case 2:
-            return "Состав семьи, дети до 12 лет, старики и дополнительные платежи."
+            return "Данные параметры влияют на дополнительные расходы по содержанию иждивенцев"
         case 3:
             return "Выбери стратегию своего бюджета."
         case 4:

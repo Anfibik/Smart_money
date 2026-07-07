@@ -69,6 +69,23 @@ struct BudgetHistoryEvent: Identifiable, Codable, Hashable {
     let iconNameSnapshot: String?
     let counterpartyNameSnapshot: String?
     let affectsStatistics: Bool
+    let undoDelta: BudgetOperationDelta?
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt
+        case type
+        case amount
+        case currencyCode
+        case categoryType
+        case categoryTitleSnapshot
+        case subcategoryID
+        case subcategoryNameSnapshot
+        case iconNameSnapshot
+        case counterpartyNameSnapshot
+        case affectsStatistics
+        case undoDelta
+    }
 
     init(
         id: UUID = UUID(),
@@ -82,7 +99,8 @@ struct BudgetHistoryEvent: Identifiable, Codable, Hashable {
         subcategoryNameSnapshot: String? = nil,
         iconNameSnapshot: String? = nil,
         counterpartyNameSnapshot: String? = nil,
-        affectsStatistics: Bool? = nil
+        affectsStatistics: Bool? = nil,
+        undoDelta: BudgetOperationDelta? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -96,6 +114,28 @@ struct BudgetHistoryEvent: Identifiable, Codable, Hashable {
         self.iconNameSnapshot = iconNameSnapshot
         self.counterpartyNameSnapshot = counterpartyNameSnapshot
         self.affectsStatistics = affectsStatistics ?? type.affectsStatisticsByDefault
+        self.undoDelta = undoDelta
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        type = try container.decode(BudgetHistoryEventType.self, forKey: .type)
+        amount = max(0, try container.decode(Double.self, forKey: .amount))
+        currencyCode = try container.decode(String.self, forKey: .currencyCode)
+        categoryType = try container.decodeIfPresent(ExpenseCategoryType.self, forKey: .categoryType)
+        categoryTitleSnapshot = try container.decodeIfPresent(String.self, forKey: .categoryTitleSnapshot)
+        subcategoryID = try container.decodeIfPresent(UUID.self, forKey: .subcategoryID)
+        subcategoryNameSnapshot = try container.decodeIfPresent(String.self, forKey: .subcategoryNameSnapshot)
+        iconNameSnapshot = try container.decodeIfPresent(String.self, forKey: .iconNameSnapshot)
+        counterpartyNameSnapshot = try container.decodeIfPresent(String.self, forKey: .counterpartyNameSnapshot)
+        affectsStatistics = try container.decodeIfPresent(Bool.self, forKey: .affectsStatistics) ?? type.affectsStatisticsByDefault
+        undoDelta = try container.decodeIfPresent(BudgetOperationDelta.self, forKey: .undoDelta)
+    }
+
+    var canUndo: Bool {
+        undoDelta != nil
     }
 
     var displayTitle: String {
@@ -128,6 +168,77 @@ struct BudgetHistoryEvent: Identifiable, Codable, Hashable {
             return iconNameSnapshot
         }
         return type.defaultIconName
+    }
+}
+
+struct BudgetOperationDelta: Codable, Hashable {
+    let incomeDelta: Double
+    let bankBalanceDelta: Double
+    let allocatedBySubcategoryIDDelta: [String: Double]
+    let spentBySubcategoryIDDelta: [String: Double]
+    let monthlyIncomeBySubcategoryIDDelta: [String: Double]
+    let monthlyIncomeDistributionBySubcategoryIDDelta: [String: Double]
+    let monthlyOtherIncomingBySubcategoryIDDelta: [String: Double]
+    let monthlyOtherOutgoingBySubcategoryIDDelta: [String: Double]
+    let categoryTargetBaselineByIDDelta: [String: Double]
+
+    init(
+        incomeDelta: Double = 0,
+        bankBalanceDelta: Double = 0,
+        allocatedBySubcategoryIDDelta: [String: Double] = [:],
+        spentBySubcategoryIDDelta: [String: Double] = [:],
+        monthlyIncomeBySubcategoryIDDelta: [String: Double] = [:],
+        monthlyIncomeDistributionBySubcategoryIDDelta: [String: Double] = [:],
+        monthlyOtherIncomingBySubcategoryIDDelta: [String: Double] = [:],
+        monthlyOtherOutgoingBySubcategoryIDDelta: [String: Double] = [:],
+        categoryTargetBaselineByIDDelta: [String: Double] = [:]
+    ) {
+        self.incomeDelta = incomeDelta
+        self.bankBalanceDelta = bankBalanceDelta
+        self.allocatedBySubcategoryIDDelta = allocatedBySubcategoryIDDelta
+        self.spentBySubcategoryIDDelta = spentBySubcategoryIDDelta
+        self.monthlyIncomeBySubcategoryIDDelta = monthlyIncomeBySubcategoryIDDelta
+        self.monthlyIncomeDistributionBySubcategoryIDDelta = monthlyIncomeDistributionBySubcategoryIDDelta
+        self.monthlyOtherIncomingBySubcategoryIDDelta = monthlyOtherIncomingBySubcategoryIDDelta
+        self.monthlyOtherOutgoingBySubcategoryIDDelta = monthlyOtherOutgoingBySubcategoryIDDelta
+        self.categoryTargetBaselineByIDDelta = categoryTargetBaselineByIDDelta
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case incomeDelta
+        case bankBalanceDelta
+        case allocatedBySubcategoryIDDelta
+        case spentBySubcategoryIDDelta
+        case monthlyIncomeBySubcategoryIDDelta
+        case monthlyIncomeDistributionBySubcategoryIDDelta
+        case monthlyOtherIncomingBySubcategoryIDDelta
+        case monthlyOtherOutgoingBySubcategoryIDDelta
+        case categoryTargetBaselineByIDDelta
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        incomeDelta = try container.decodeIfPresent(Double.self, forKey: .incomeDelta) ?? 0
+        bankBalanceDelta = try container.decodeIfPresent(Double.self, forKey: .bankBalanceDelta) ?? 0
+        allocatedBySubcategoryIDDelta = try container.decodeIfPresent([String: Double].self, forKey: .allocatedBySubcategoryIDDelta) ?? [:]
+        spentBySubcategoryIDDelta = try container.decodeIfPresent([String: Double].self, forKey: .spentBySubcategoryIDDelta) ?? [:]
+        monthlyIncomeBySubcategoryIDDelta = try container.decodeIfPresent([String: Double].self, forKey: .monthlyIncomeBySubcategoryIDDelta) ?? [:]
+        monthlyIncomeDistributionBySubcategoryIDDelta = try container.decodeIfPresent([String: Double].self, forKey: .monthlyIncomeDistributionBySubcategoryIDDelta) ?? [:]
+        monthlyOtherIncomingBySubcategoryIDDelta = try container.decodeIfPresent([String: Double].self, forKey: .monthlyOtherIncomingBySubcategoryIDDelta) ?? [:]
+        monthlyOtherOutgoingBySubcategoryIDDelta = try container.decodeIfPresent([String: Double].self, forKey: .monthlyOtherOutgoingBySubcategoryIDDelta) ?? [:]
+        categoryTargetBaselineByIDDelta = try container.decodeIfPresent([String: Double].self, forKey: .categoryTargetBaselineByIDDelta) ?? [:]
+    }
+
+    var isEmpty: Bool {
+        abs(incomeDelta) <= 0.0001
+            && abs(bankBalanceDelta) <= 0.0001
+            && allocatedBySubcategoryIDDelta.isEmpty
+            && spentBySubcategoryIDDelta.isEmpty
+            && monthlyIncomeBySubcategoryIDDelta.isEmpty
+            && monthlyIncomeDistributionBySubcategoryIDDelta.isEmpty
+            && monthlyOtherIncomingBySubcategoryIDDelta.isEmpty
+            && monthlyOtherOutgoingBySubcategoryIDDelta.isEmpty
+            && categoryTargetBaselineByIDDelta.isEmpty
     }
 }
 

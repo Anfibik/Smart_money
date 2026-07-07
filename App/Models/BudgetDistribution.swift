@@ -17,7 +17,10 @@ struct SubcategoryAllocation: Identifiable, Hashable {
     let remainingAmount: Double
     let deficitAmount: Double
     let monthlyIncomeAmount: Double
+    let monthlyIncomeDistributionAmount: Double
+    let monthlyOtherIncomingAmount: Double
     let monthlyExpenseAmount: Double
+    let monthlyOtherOutgoingAmount: Double
 }
 
 struct CategoryAllocation: Identifiable, Hashable {

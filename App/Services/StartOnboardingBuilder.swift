@@ -158,8 +158,8 @@ struct StartOnboardingBuilder {
             + (Double(input.elderlyDependentsCount) * 5.0)
         let hygienePercentage = 5.0
         let childrenPercentage = input.childrenCount > 0 ? 10.0 : nil
-        let animalsPercentage = input.petsCount > 0 ? 5.0 : nil
-        let transportPercentage = input.hasCar ? 15.0 : 5.0
+        let animalsPercentage = input.petsCount > 0 ? 3.0 : nil
+        let transportPercentage = input.hasCar ? 10.0 : 5.0
         let hasDebt = input.capital < 0
 
         let housingMin = roundToCents(input.housingCost * 1.10)
@@ -255,7 +255,7 @@ struct StartOnboardingBuilder {
                 name: SystemSubcategoryKey.shopping.defaultName,
                 iconName: Self.defaultSystemIcon(for: .shopping),
                 note: "Торговые центы, одежда, любой вид покупок",
-                basePercentage: 20,
+                basePercentage: 15,
                 minLimit: 500,
                 maxLimit: nil,
                 priority: .high,
@@ -268,7 +268,7 @@ struct StartOnboardingBuilder {
                 name: SystemSubcategoryKey.entertainment.defaultName,
                 iconName: Self.defaultSystemIcon(for: .entertainment),
                 note: "Театры, прогулки, концерты, клубы...",
-                basePercentage: 20,
+                basePercentage: 10,
                 minLimit: 1000,
                 maxLimit: nil,
                 priority: .medium,
@@ -300,7 +300,7 @@ struct StartOnboardingBuilder {
                 categoryType: .wants,
                 systemKey: .travel,
                 note: "Поездки, билеты, отпуск",
-                basePercentage: 5,
+                basePercentage: 10,
                 minLimit: 1000,
                 selectedRecommendations: selectedRecommendations
             ),
@@ -308,7 +308,7 @@ struct StartOnboardingBuilder {
                 categoryType: .wants,
                 systemKey: .restaurants,
                 note: "Кафе, рестораны, доставки и встречи вне дома",
-                basePercentage: 10,
+                basePercentage: 20,
                 minLimit: 2000,
                 selectedRecommendations: selectedRecommendations
             ),
@@ -324,7 +324,7 @@ struct StartOnboardingBuilder {
                 categoryType: .wants,
                 systemKey: .sport,
                 note: "Зал, секции, инвентарь",
-                basePercentage: 10,
+                basePercentage: 20,
                 minLimit: 500,
                 selectedRecommendations: selectedRecommendations
             ),
@@ -521,7 +521,7 @@ struct StartOnboardingBuilder {
                 systemKey: .transport,
                 percentage: transportPercentage,
                 minLimit: transportMin,
-                iconName: transportPercentage >= 15 ? "car.fill" : "tram.fill",
+                iconName: transportPercentage >= 10 ? "car.fill" : "tram.fill",
                 priority: .medium
             )
         )
@@ -801,7 +801,10 @@ struct StartOnboardingBuilder {
                     remainingAmount: roundToCents(remaining),
                     deficitAmount: roundToCents(deficit),
                     monthlyIncomeAmount: roundToCents(allocated),
-                    monthlyExpenseAmount: roundToCents(subcategory.spentAmount)
+                    monthlyIncomeDistributionAmount: roundToCents(allocated),
+                    monthlyOtherIncomingAmount: 0,
+                    monthlyExpenseAmount: roundToCents(subcategory.spentAmount),
+                    monthlyOtherOutgoingAmount: 0
                 )
             }
 

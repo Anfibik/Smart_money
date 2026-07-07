@@ -5,11 +5,12 @@ struct ExpenseSheetView: View {
     let currencyCode: String
     let bankAvailableAmount: Double
     let coverageRequirement: CategoryCoverageRequirement?
-    let automaticBankCoverageAmount: Double
+    let fundingPreview: ExpenseFundingPreview?
     @Binding var expenseInput: String
-    let onPay: (Double, Bool) -> Void
-    let onAutoForcedPay: (Double) -> Void
-    let onManualForcedPay: (Double, [UUID: Double]) -> Void
+    @Binding var fundingStrategy: ExpenseFundingStrategy
+    let onPay: (Double, ExpenseFundingStrategy) -> Void
+    let onAutoForcedPay: (Double, ExpenseFundingStrategy) -> Void
+    let onManualForcedPay: (Double, [UUID: Double], ExpenseFundingStrategy) -> Void
     let onCancel: () -> Void
 
     @FocusState private var isExpenseFieldFocused: Bool
@@ -28,71 +29,68 @@ struct ExpenseSheetView: View {
     private var canPay: Bool {
         guard enteredAmount > 0 else { return false }
 
-        if let coverageRequirement {
-            return coverageRequirement.canCover
-        }
-
-        return true
+        return fundingPreview?.canPay ?? false
     }
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                Text(target.subcategoryName)
-                    .font(.title3.bold())
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(target.subcategoryName)
+                        .font(.title3.bold())
 
-                Text("Доступно в подкатегории: \(currency(availableFromSubcategory))")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
-                Text("Доступно в свободном капитале: \(currency(bankAvailableAmount))")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
-                TextField("Введите сумму", text: $expenseInput)
-                    .keyboardType(.decimalPad)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($isExpenseFieldFocused)
-
-                if let coverageRequirement, enteredAmount > 0 {
-                    coverageInfo(requirement: coverageRequirement)
-                } else if enteredAmount > availableFromSubcategory + 0.0001 {
-                    Text("Нехватка будет автоматически покрыта свободными деньгами категории и свободным капиталом.")
-                        .font(.caption)
+                    Text("Доступно в подкатегории: \(currency(availableFromSubcategory))")
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
 
-                    if automaticBankCoverageAmount > 0.01 {
-                        Text("Из свободного капитала будет взято: \(currency(automaticBankCoverageAmount))")
+                    Text("Доступно в свободном капитале: \(currency(bankAvailableAmount))")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 12) {
+                        TextField("Введите сумму", text: $expenseInput)
+                            .keyboardType(.decimalPad)
+                            .textFieldStyle(.roundedBorder)
+                            .focused($isExpenseFieldFocused)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Button("Оплатить") {
+                            submitPayment()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!canPay)
+                        .frame(maxWidth: .infinity)
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Порядок списания")
+                            .font(.subheadline.weight(.semibold))
+
+                        Picker("Порядок списания", selection: $fundingStrategy) {
+                            ForEach(ExpenseFundingStrategy.allCases) { strategy in
+                                Text(strategy.title).tag(strategy)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        Text(fundingStrategy.explanation)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                }
 
-                if let coverageRequirement, enteredAmount > 0, !coverageRequirement.canCover {
-                    Text("Операция недоступна: даже вся категория не покрывает эту сумму.")
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
-
-                Button("Оплатить") {
-                    guard canPay else { return }
-                    if let coverageRequirement, coverageRequirement.canCover {
-                        isCoverageChoicePresented = true
-                    } else {
-                        onPay(enteredAmount, true)
+                    if enteredAmount > 0, let fundingPreview {
+                        fundingBreakdown(fundingPreview)
                     }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!canPay)
 
-                Spacer()
+                }
+                .padding()
             }
-            .padding()
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Оплата")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Отмена", action: onCancel)
+                    Button("Назад", action: onCancel)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
@@ -108,7 +106,7 @@ struct ExpenseSheetView: View {
             }
             .confirmationDialog("Покрытие внутри категории", isPresented: $isCoverageChoicePresented, titleVisibility: .visible) {
                 Button("Авто") {
-                    onAutoForcedPay(enteredAmount)
+                    onAutoForcedPay(enteredAmount, fundingStrategy)
                 }
 
                 Button("Ручной выбор") {
@@ -129,7 +127,7 @@ struct ExpenseSheetView: View {
                         currencyCode: currencyCode,
                         requirement: coverageRequirement,
                         onConfirm: { allocations in
-                            onManualForcedPay(enteredAmount, allocations)
+                            onManualForcedPay(enteredAmount, allocations, fundingStrategy)
                             isManualCoveragePresented = false
                         },
                         onCancel: {
@@ -141,25 +139,97 @@ struct ExpenseSheetView: View {
         }
     }
 
-    private func coverageInfo(requirement: CategoryCoverageRequirement) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Автоматически закроется из свободных денег категории: \(currency(requirement.automaticCategoryAmount))")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+    private func fundingBreakdown(_ preview: ExpenseFundingPreview) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Как будет списана сумма")
+                .font(.subheadline.weight(.semibold))
 
-            Text("Автоматически закроется из свободного капитала: \(currency(requirement.bankContributionAmount))")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            ForEach(preview.immediateLines) { line in
+                fundingLine(line)
+            }
 
-            if requirement.canCover {
-                Text("Останется покрыть внутри категории: \(currency(requirement.shortageAmount)). Можно выбрать Авто или Ручной режим.")
+            if !preview.confirmationLines.isEmpty {
+                Divider()
+
+                Text(preview.canPay
+                     ? "Потребуется подтверждение: часть суммы будет взята из защищенных остатков других карточек. При выборе «Авто»:"
+                     : "Будут использованы все доступные остатки других карточек:")
                     .font(.caption)
-                    .foregroundStyle(.orange)
-            } else {
-                Text("Даже с заходом в минимумы других карточек категория не покрывает сумму. Максимум доступно: \(currency(requirement.totalAvailableAmount)).")
-                    .font(.caption)
+                    .foregroundStyle(preview.canPay ? .orange : .red)
+
+                ForEach(preview.confirmationLines) { line in
+                    fundingLine(line)
+                }
+            }
+
+            if preview.uncoveredAmount > 0.0001 {
+                Text("Не хватает \(currency(preview.uncoveredAmount)). Операция недоступна.")
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(.red)
             }
+        }
+        .padding(12)
+        .background(AppTheme.panelBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func submitPayment() {
+        guard canPay else { return }
+        if let coverageRequirement, coverageRequirement.canCover {
+            isCoverageChoicePresented = true
+        } else {
+            onPay(enteredAmount, fundingStrategy)
+        }
+    }
+
+    private func fundingLine(_ line: ExpenseFundingLine) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: line.iconName)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(fundingColor(for: line.kind))
+                .frame(width: 24, height: 24)
+                .background(fundingColor(for: line.kind).opacity(0.12))
+                .clipShape(Circle())
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(line.title)
+                    .font(.caption.weight(.medium))
+
+                Text(fundingDescription(for: line.kind))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 8)
+
+            Text(currency(line.amount))
+                .font(.caption.monospacedDigit().weight(.semibold))
+        }
+    }
+
+    private func fundingDescription(for kind: ExpenseFundingKind) -> String {
+        switch kind {
+        case .selectedCard:
+            return "Выбранная карточка"
+        case .automaticCategoryCard:
+            return "Автоматически из свободного остатка"
+        case .freeCapital:
+            return "Автоматически"
+        case .confirmedCategoryCard:
+            return "После подтверждения"
+        }
+    }
+
+    private func fundingColor(for kind: ExpenseFundingKind) -> Color {
+        switch kind {
+        case .selectedCard:
+            return .accentColor
+        case .automaticCategoryCard:
+            return .blue
+        case .freeCapital:
+            return .green
+        case .confirmedCategoryCard:
+            return .orange
         }
     }
 

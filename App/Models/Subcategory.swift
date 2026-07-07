@@ -313,7 +313,6 @@ enum SubcategoryIconCatalog {
         "music.note.house.fill",
         "film.fill",
         "cup.and.saucer.fill",
-        "banknote.fill",
         "chart.line.uptrend.xyaxis",
         "briefcase.fill",
         "dollarsign.circle.fill",

@@ -2,11 +2,9 @@ import Foundation
 
 final class BudgetStatisticsService {
     private let calendar: Calendar
-    private let locale: Locale
 
-    init(calendar: Calendar = .current, locale: Locale = .current) {
+    init(calendar: Calendar = .current) {
         self.calendar = calendar
-        self.locale = locale
     }
 
     func availableMonths(from events: [BudgetHistoryEvent], now: Date = Date()) -> [HistoryMonthOption] {
@@ -85,13 +83,7 @@ final class BudgetStatisticsService {
         return filtered.sorted { $0.createdAt > $1.createdAt }
     }
 
-    func buildSummary(
-        from periodEvents: [BudgetHistoryEvent],
-        mode: HistoryPeriodMode,
-        selectedMonth: HistoryMonthOption?,
-        selectedYear: Int?,
-        now: Date = Date()
-    ) -> BudgetStatisticsSummary {
+    func buildSummary(from periodEvents: [BudgetHistoryEvent]) -> BudgetStatisticsSummary {
         let statisticEvents = periodEvents.filter(\.affectsStatistics)
         let incomeEvents = statisticEvents.filter { $0.type == .income }
         let expenseEvents = statisticEvents.filter { $0.type == .expense }
@@ -116,13 +108,9 @@ final class BudgetStatisticsService {
             largestExpense: largestExpense,
             averageExpense: averageExpense,
             expenseByCategory: buildExpenseByCategory(from: expenseEvents, totalExpense: totalExpense),
-            topExpenseSubcategories: buildTopExpenseSubcategories(from: expenseEvents, totalExpense: totalExpense),
-            timelineBuckets: buildTimelineBuckets(
-                from: statisticEvents,
-                mode: mode,
-                selectedMonth: selectedMonth,
-                selectedYear: selectedYear,
-                now: now
+            expenseSubcategoriesByCategory: buildExpenseSubcategoriesByCategory(
+                from: expenseEvents,
+                totalExpense: totalExpense
             )
         )
     }
@@ -150,193 +138,83 @@ final class BudgetStatisticsService {
             .sorted { $0.amount > $1.amount }
     }
 
-    private func buildTopExpenseSubcategories(
+    private func buildExpenseSubcategoriesByCategory(
         from expenseEvents: [BudgetHistoryEvent],
         totalExpense: Double
-    ) -> [BudgetSubcategoryStatLine] {
-        struct Accumulator {
+    ) -> [BudgetSubcategoryStatSection] {
+        struct SubcategoryAccumulator {
             var title: String
             var iconName: String
             var amount: Double
         }
 
-        var lines: [String: Accumulator] = [:]
+        struct CategoryAccumulator {
+            var id: String
+            var title: String
+            var amount: Double
+            var subcategories: [String: SubcategoryAccumulator]
+        }
+
+        var categories: [String: CategoryAccumulator] = [:]
 
         for event in expenseEvents {
-            let key = event.subcategoryID?.uuidString
-                ?? [event.categoryTitleSnapshot, event.subcategoryNameSnapshot]
+            let categoryID = event.categoryType?.rawValue
+                ?? event.categoryTitleSnapshot
+                ?? "uncategorized"
+            let categoryTitle = event.categoryTitleSnapshot ?? event.categoryType?.title ?? "Без категории"
+            let subcategoryID = event.subcategoryID?.uuidString
+                ?? [categoryID, event.subcategoryNameSnapshot]
                     .compactMap { $0 }
                     .joined(separator: "::")
             let title = event.subcategoryNameSnapshot ?? "Без карточки"
             let iconName = event.displayIconName
-            let current = lines[key] ?? Accumulator(title: title, iconName: iconName, amount: 0)
-            lines[key] = Accumulator(title: current.title, iconName: current.iconName, amount: current.amount + event.amount)
+
+            var category = categories[categoryID] ?? CategoryAccumulator(
+                id: categoryID,
+                title: categoryTitle,
+                amount: 0,
+                subcategories: [:]
+            )
+            let subcategory = category.subcategories[subcategoryID]
+                ?? SubcategoryAccumulator(title: title, iconName: iconName, amount: 0)
+
+            category.amount += event.amount
+            category.subcategories[subcategoryID] = SubcategoryAccumulator(
+                title: subcategory.title,
+                iconName: subcategory.iconName,
+                amount: subcategory.amount + event.amount
+            )
+            categories[categoryID] = category
         }
 
-        return lines
-            .map { key, accumulator in
-                BudgetSubcategoryStatLine(
-                    id: key,
-                    title: accumulator.title,
-                    iconName: accumulator.iconName,
-                    amount: roundToCents(accumulator.amount),
-                    share: totalExpense > 0 ? accumulator.amount / totalExpense : 0
+        return categories.values
+            .map { category in
+                let subcategories = category.subcategories
+                    .map { key, subcategory in
+                        BudgetSubcategoryStatLine(
+                            id: key,
+                            title: subcategory.title,
+                            iconName: subcategory.iconName,
+                            amount: roundToCents(subcategory.amount),
+                            share: totalExpense > 0 ? subcategory.amount / totalExpense : 0
+                        )
+                    }
+                    .sorted { $0.amount > $1.amount }
+
+                return BudgetSubcategoryStatSection(
+                    id: category.id,
+                    title: category.title,
+                    amount: roundToCents(category.amount),
+                    share: totalExpense > 0 ? category.amount / totalExpense : 0,
+                    subcategories: subcategories
                 )
             }
             .sorted { $0.amount > $1.amount }
-            .prefix(5)
-            .map { $0 }
-    }
-
-    private func buildTimelineBuckets(
-        from statisticEvents: [BudgetHistoryEvent],
-        mode: HistoryPeriodMode,
-        selectedMonth: HistoryMonthOption?,
-        selectedYear: Int?,
-        now: Date
-    ) -> [BudgetStatisticsBucket] {
-        switch mode {
-        case .month:
-            return buildDailyBuckets(for: statisticEvents, selectedMonth: selectedMonth, now: now)
-        case .year:
-            return buildMonthlyBucketsForYear(for: statisticEvents, selectedYear: selectedYear, now: now)
-        case .allTime:
-            return buildMonthlyBucketsForAllTime(for: statisticEvents, now: now)
-        }
-    }
-
-    private func buildDailyBuckets(
-        for events: [BudgetHistoryEvent],
-        selectedMonth: HistoryMonthOption?,
-        now: Date
-    ) -> [BudgetStatisticsBucket] {
-        let monthOption = selectedMonth ?? availableMonths(from: events, now: now).first
-        guard let monthOption,
-              let monthStart = monthOption.startDate(calendar: calendar),
-              let dayRange = calendar.range(of: .day, in: .month, for: monthStart) else {
-            return []
-        }
-
-        var eventsByDay: [Int: (income: Double, expense: Double)] = [:]
-        for event in events {
-            let day = calendar.component(.day, from: event.createdAt)
-            var current = eventsByDay[day, default: (0, 0)]
-            if event.type == .income {
-                current.income += event.amount
-            } else if event.type == .expense {
-                current.expense += event.amount
-            }
-            eventsByDay[day] = current
-        }
-
-        return dayRange.compactMap { day -> BudgetStatisticsBucket? in
-            guard let date = calendar.date(from: DateComponents(year: monthOption.year, month: monthOption.month, day: day)) else {
-                return nil
-            }
-            let values = eventsByDay[day, default: (0, 0)]
-            return BudgetStatisticsBucket(
-                id: "day-\(day)",
-                startDate: date,
-                label: "\(day)",
-                income: roundToCents(values.income),
-                expense: roundToCents(values.expense)
-            )
-        }
-    }
-
-    private func buildMonthlyBucketsForYear(
-        for events: [BudgetHistoryEvent],
-        selectedYear: Int?,
-        now: Date
-    ) -> [BudgetStatisticsBucket] {
-        let year = selectedYear ?? calendar.component(.year, from: now)
-        var valuesByMonth: [Int: (income: Double, expense: Double)] = [:]
-
-        for event in events {
-            let month = calendar.component(.month, from: event.createdAt)
-            var current = valuesByMonth[month, default: (0, 0)]
-            if event.type == .income {
-                current.income += event.amount
-            } else if event.type == .expense {
-                current.expense += event.amount
-            }
-            valuesByMonth[month] = current
-        }
-
-        return (1...12).compactMap { month -> BudgetStatisticsBucket? in
-            guard let date = calendar.date(from: DateComponents(year: year, month: month, day: 1)) else {
-                return nil
-            }
-            let values = valuesByMonth[month, default: (0, 0)]
-            return BudgetStatisticsBucket(
-                id: "year-\(year)-month-\(month)",
-                startDate: date,
-                label: shortMonthLabel(for: date),
-                income: roundToCents(values.income),
-                expense: roundToCents(values.expense)
-            )
-        }
-    }
-
-    private func buildMonthlyBucketsForAllTime(
-        for events: [BudgetHistoryEvent],
-        now: Date
-    ) -> [BudgetStatisticsBucket] {
-        let monthOptions = availableMonths(from: events, now: now).sorted { lhs, rhs in
-            if lhs.year == rhs.year {
-                return lhs.month < rhs.month
-            }
-            return lhs.year < rhs.year
-        }
-
-        guard !monthOptions.isEmpty else { return [] }
-
-        var valuesByMonthKey: [String: (income: Double, expense: Double)] = [:]
-        for event in events {
-            let components = calendar.dateComponents([.year, .month], from: event.createdAt)
-            let key = String(format: "%04d-%02d", components.year ?? 0, components.month ?? 1)
-            var current = valuesByMonthKey[key, default: (0, 0)]
-            if event.type == .income {
-                current.income += event.amount
-            } else if event.type == .expense {
-                current.expense += event.amount
-            }
-            valuesByMonthKey[key] = current
-        }
-
-        return monthOptions.compactMap { option -> BudgetStatisticsBucket? in
-            guard let date = option.startDate(calendar: calendar) else { return nil }
-            let key = option.id
-            let values = valuesByMonthKey[key, default: (0, 0)]
-            return BudgetStatisticsBucket(
-                id: "all-\(key)",
-                startDate: date,
-                label: shortMonthYearLabel(for: date),
-                income: roundToCents(values.income),
-                expense: roundToCents(values.expense)
-            )
-        }
     }
 
     private func startOfMonth(for date: Date) -> Date {
         let components = calendar.dateComponents([.year, .month], from: date)
         return calendar.date(from: components) ?? date
-    }
-
-    private func shortMonthLabel(for date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.calendar = calendar
-        formatter.dateFormat = "LLL"
-        return formatter.string(from: date).capitalized
-    }
-
-    private func shortMonthYearLabel(for date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.calendar = calendar
-        formatter.dateFormat = "LLL yy"
-        return formatter.string(from: date).capitalized
     }
 
     private func roundToCents(_ value: Double) -> Double {

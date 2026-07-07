@@ -82,27 +82,63 @@ struct SubcategoryCardView: View {
                 .padding(.bottom, 6)
         }
         .padding(.horizontal, 6)
+        .overlay(alignment: .topTrailing) {
+            systemLockBadge
+        }
     }
 
     private var detailSide: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 0) {
             Text("Текущий месяц")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
 
-            detailMetricRow(title: "+", value: currencyString(subcategory.monthlyIncomeAmount))
-            detailMetricRow(title: "-", value: currencyString(subcategory.monthlyExpenseAmount))
             detailMetricRow(
-                title: "=",
-                value: currencyString(abs(monthlyBalance)),
-                valueColor: balanceValueColor
+                title: "+",
+                value: currencyString(subcategory.monthlyIncomeDistributionAmount),
+                symbolColor: .green,
+                valueColor: .green
+            )
+            detailMetricRow(
+                title: "→←",
+                value: currencyString(subcategory.monthlyOtherIncomingAmount),
+                symbolColor: paleGreen,
+                valueColor: paleGreen
+            )
+            detailMetricRow(
+                title: "-",
+                value: currencyString(subcategory.monthlyExpenseAmount),
+                symbolColor: .red,
+                valueColor: .red
+            )
+            detailMetricRow(
+                title: "←→",
+                value: currencyString(subcategory.monthlyOtherOutgoingAmount),
+                symbolColor: paleRed,
+                valueColor: paleRed
             )
             dividerLine
-            deficitRow
+            minimumRow
         }
         .padding(.horizontal, 6)
-        .padding(.vertical, 5)
+        .padding(.vertical, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private var systemLockBadge: some View {
+        if subcategory.isSystem {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(.secondary)
+                .padding(5)
+                .background(
+                    Circle()
+                        .fill(AppTheme.cardBackground.opacity(0.92))
+                )
+                .padding(5)
+                .accessibilityLabel("Системная карточка")
+        }
     }
 
     private func titleRow(alignment: HorizontalAlignment) -> some View {
@@ -133,8 +169,12 @@ struct SubcategoryCardView: View {
         subcategory.allocatedAmount - subcategory.spentAmount
     }
 
-    private var monthlyBalance: Double {
-        subcategory.monthlyIncomeAmount - subcategory.monthlyExpenseAmount
+    private var paleGreen: Color {
+        .green.opacity(0.62)
+    }
+
+    private var paleRed: Color {
+        .red.opacity(0.62)
     }
 
     private var statusColor: Color {
@@ -148,34 +188,8 @@ struct SubcategoryCardView: View {
         }
     }
 
-    private var balanceValueColor: Color {
-        if monthlyBalance < -0.01 {
-            return .red
-        }
-
-        if monthlyBalance > 0.01 {
-            return .green
-        }
-
-        return .primary
-    }
-
-    @ViewBuilder
-    private var deficitRow: some View {
-        if subcategory.deficitAmount > 0.01 {
-            detailMetricRow(
-                title: "!",
-                value: currencyString(subcategory.deficitAmount),
-                symbolColor: .orange,
-                valueColor: .orange
-            )
-        } else {
-            detailPercentageRow
-        }
-    }
-
-    private var detailPercentageRow: some View {
-        Text("\(formattedPercent(subcategory.basePercentage))%")
+    private var minimumRow: some View {
+        Text("мин.: \(formattedAmount(subcategory.minLimit ?? 0))")
             .font(.caption2)
             .foregroundStyle(.secondary)
             .lineLimit(1)
@@ -192,6 +206,7 @@ struct SubcategoryCardView: View {
         HStack(spacing: 6) {
             Text(title)
                 .foregroundStyle(symbolColor)
+                .frame(width: 20, alignment: .center)
             Spacer(minLength: 4)
             Text(value)
                 .foregroundStyle(valueColor)
@@ -201,8 +216,8 @@ struct SubcategoryCardView: View {
         .minimumScaleFactor(0.7)
     }
 
-    private func formattedPercent(_ value: Double) -> String {
-        String(format: "%.2f", value).replacingOccurrences(of: ".00", with: "")
+    private func formattedAmount(_ value: Double) -> String {
+        String(format: "%.2f", max(0, value)).replacingOccurrences(of: ".00", with: "")
     }
 
     private var dividerLine: some View {

@@ -4,8 +4,8 @@ struct CategoryHeaderView: View {
     let category: CategoryAllocation
     let currencyCode: String
     let categoryRemaining: Double
-    let categorySpent: Double
-    let categoryLastIncome: Double
+    let categoryMonthlyExpense: Double
+    let categoryMonthlyIncome: Double
     let isExpanded: Bool
     let useCompactLayout: Bool
     let onTap: () -> Void
@@ -49,20 +49,16 @@ struct CategoryHeaderView: View {
 
                 Text(currency(categoryRemaining))
                     .font(.subheadline.weight(.semibold))
-
-                Text("В свободный капитал: \(currency(category.lastIncomeToBankAmount))")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
             }
 
             Spacer(minLength: 8)
 
             VStack(alignment: .trailing, spacing: 6) {
-                Text("+ \(currency(categoryLastIncome))")
+                Text("+ \(currency(categoryMonthlyIncome))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Text("- \(currency(categorySpent))")
+                Text("- \(currency(categoryMonthlyExpense))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
