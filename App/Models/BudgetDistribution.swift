@@ -4,6 +4,7 @@ struct SubcategoryAllocation: Identifiable, Hashable {
     let id: UUID
     let name: String
     let isSystem: Bool
+    let systemKey: SystemSubcategoryKey?
     let iconName: String
     let basePercentage: Double
     let fixedMinimumPercentage: Double?
@@ -15,6 +16,11 @@ struct SubcategoryAllocation: Identifiable, Hashable {
     let spentAmount: Double
     let remainingAmount: Double
     let deficitAmount: Double
+    let monthlyIncomeAmount: Double
+    let monthlyIncomeDistributionAmount: Double
+    let monthlyOtherIncomingAmount: Double
+    let monthlyExpenseAmount: Double
+    let monthlyOtherOutgoingAmount: Double
 }
 
 struct CategoryAllocation: Identifiable, Hashable {

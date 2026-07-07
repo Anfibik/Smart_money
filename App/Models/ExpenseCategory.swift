@@ -9,7 +9,7 @@ enum ExpenseCategoryType: String, Codable, CaseIterable, Hashable {
         switch self {
         case .essentials: return "Основные"
         case .wants: return "Желаемые"
-        case .savings: return "Накопления"
+        case .savings: return "Финансы"
         }
     }
 

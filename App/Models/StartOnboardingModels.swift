@@ -27,6 +27,7 @@ enum SetupHousingType: String, Codable, CaseIterable, Hashable, Identifiable {
 
 enum StartStrategyType: String, Codable, CaseIterable, Hashable, Identifiable {
     case stability
+    case balance
     case capitalGrowth
 
     var id: String { rawValue }
@@ -35,17 +36,21 @@ enum StartStrategyType: String, Codable, CaseIterable, Hashable, Identifiable {
         switch self {
         case .stability:
             return "Стабильность"
+        case .balance:
+            return "Баланс"
         case .capitalGrowth:
-            return "Рост капитала"
+            return "Рост Капитала"
         }
     }
 
     var summary: String {
         switch self {
         case .stability:
-            return "Основные 60% / Желаемые 15% / Накопления 25%"
+            return "Упор на основные потребности и уверенность в завтрашнем дне."
+        case .balance:
+            return "Сбалансированная стратегия для большей свободы в своих желаниях"
         case .capitalGrowth:
-            return "Основные 50% / Желаемые 15% / Накопления 35%"
+            return "Стратегия для инвестиций, открытия бизнеса или накоплений под крупные покупки"
         }
     }
 
@@ -55,6 +60,12 @@ enum StartStrategyType: String, Codable, CaseIterable, Hashable, Identifiable {
             return [
                 .essentials: 60,
                 .wants: 15,
+                .savings: 25
+            ]
+        case .balance:
+            return [
+                .essentials: 55,
+                .wants: 20,
                 .savings: 25
             ]
         case .capitalGrowth:
@@ -101,13 +112,16 @@ struct StartOnboardingDraft: Hashable {
     var capital: Double = 0
     var housingType: SetupHousingType = .rented
     var housingCost: Double = 0
-    var carsCount: Int = 0
+    var hasCar: Bool = false
     var dependentsCount: Int = 0
+    var elderlyDependentsCount: Int = 0
     var childrenCount: Int = 0
+    var petsCount: Int = 0
     var hasCredit: Bool = false
     var creditMonthlyPayment: Double = 0
     var strategy: StartStrategyType = .stability
     var customCards: [StartCustomCardInput] = []
+    var selectedRecommendationKeys: [SystemSubcategoryKey] = []
 
     func resolvedInput() -> StartOnboardingInput {
         StartOnboardingInput(
@@ -115,13 +129,16 @@ struct StartOnboardingDraft: Hashable {
             capital: capital,
             housingType: housingType,
             housingCost: housingCost,
-            carsCount: carsCount,
+            hasCar: hasCar,
             dependentsCount: dependentsCount,
+            elderlyDependentsCount: elderlyDependentsCount,
             childrenCount: childrenCount,
+            petsCount: petsCount,
             hasCredit: hasCredit,
             creditMonthlyPayment: creditMonthlyPayment,
             strategy: strategy,
-            customCards: customCards
+            customCards: customCards,
+            selectedRecommendationKeys: selectedRecommendationKeys
         )
     }
 }
@@ -131,46 +148,55 @@ struct StartOnboardingInput: Codable, Hashable {
     let capital: Double
     let housingType: SetupHousingType
     let housingCost: Double
-    let carsCount: Int
+    let hasCar: Bool
     let dependentsCount: Int
+    let elderlyDependentsCount: Int
     let childrenCount: Int
+    let petsCount: Int
     let hasCredit: Bool
     let creditMonthlyPayment: Double
     let strategy: StartStrategyType
     let customCards: [StartCustomCardInput]
+    let selectedRecommendationKeys: [SystemSubcategoryKey]
 
     init(
         monthlyIncome: Double,
         capital: Double,
         housingType: SetupHousingType,
         housingCost: Double,
-        carsCount: Int,
+        hasCar: Bool,
         dependentsCount: Int,
+        elderlyDependentsCount: Int,
         childrenCount: Int,
+        petsCount: Int,
         hasCredit: Bool,
         creditMonthlyPayment: Double,
         strategy: StartStrategyType,
-        customCards: [StartCustomCardInput]
+        customCards: [StartCustomCardInput],
+        selectedRecommendationKeys: [SystemSubcategoryKey] = []
     ) {
         self.monthlyIncome = max(0, monthlyIncome)
         self.capital = capital
         self.housingType = housingType
         self.housingCost = max(0, housingCost)
-        self.carsCount = max(0, carsCount)
+        self.hasCar = hasCar
         self.dependentsCount = max(0, dependentsCount)
+        self.elderlyDependentsCount = max(0, elderlyDependentsCount)
         self.childrenCount = max(0, childrenCount)
+        self.petsCount = max(0, petsCount)
         self.hasCredit = hasCredit
         self.creditMonthlyPayment = hasCredit ? max(0, creditMonthlyPayment) : 0
         self.strategy = strategy
         self.customCards = Self.normalizedCustomCards(customCards)
+        self.selectedRecommendationKeys = Array(Set(selectedRecommendationKeys)).sorted { $0.rawValue < $1.rawValue }
     }
 
     var adultDependentsCount: Int {
-        dependentsCount
+        dependentsCount + elderlyDependentsCount
     }
 
     var adultsIncludingUserCount: Int {
-        1 + dependentsCount
+        1 + adultDependentsCount
     }
 
     var totalPeopleCount: Int {
@@ -203,12 +229,19 @@ struct StartOnboardingInput: Codable, Hashable {
 
 struct StartSystemCardDescriptor: Identifiable, Hashable {
     let categoryType: ExpenseCategoryType
+    let systemKey: SystemSubcategoryKey
     let name: String
     let iconName: String
     let note: String?
+    let basePercentage: Double
+    let minLimit: Double
+    let maxLimit: Double?
+    let priority: SubcategoryPriorityLevel
+    let isRecommended: Bool
+    let isActive: Bool
 
     var id: String {
-        "\(categoryType.rawValue)::\(name)"
+        "\(categoryType.rawValue)::\(systemKey.rawValue)"
     }
 }
 

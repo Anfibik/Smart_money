@@ -4,8 +4,8 @@ struct CategoryHeaderView: View {
     let category: CategoryAllocation
     let currencyCode: String
     let categoryRemaining: Double
-    let categorySpent: Double
-    let categoryLastIncome: Double
+    let categoryMonthlyExpense: Double
+    let categoryMonthlyIncome: Double
     let isExpanded: Bool
     let useCompactLayout: Bool
     let onTap: () -> Void
@@ -47,26 +47,22 @@ struct CategoryHeaderView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Text(categoryRemaining, format: .currency(code: currencyCode))
+                Text(currency(categoryRemaining))
                     .font(.subheadline.weight(.semibold))
-
-                Text("В банку: \(category.lastIncomeToBankAmount, format: .currency(code: currencyCode))")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
             }
 
             Spacer(minLength: 8)
 
             VStack(alignment: .trailing, spacing: 6) {
-                Text("+ \(categoryLastIncome, format: .currency(code: currencyCode))")
+                Text("+ \(currency(categoryMonthlyIncome))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Text("- \(categorySpent, format: .currency(code: currencyCode))")
+                Text("- \(currency(categoryMonthlyExpense))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Text("Дефицит: -\(category.deficitAmount, format: .currency(code: currencyCode))")
+                Text("Дефицит: -\(currency(category.deficitAmount))")
                     .font(.caption)
                     .foregroundColor(category.deficitAmount > 0 ? .red : .secondary)
             }
@@ -78,6 +74,10 @@ struct CategoryHeaderView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
+    }
+
+    private func currency(_ value: Double) -> String {
+        AppCurrencyFormatter.string(value, currencyCode: currencyCode)
     }
 }
 

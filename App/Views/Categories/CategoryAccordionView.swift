@@ -6,7 +6,11 @@ struct CategoryAccordionView: View {
     let currencyCode: String
     let lastIncomeAmount: Double
     let bankAvailableAmount: Double
-    let onPayExpense: (ExpenseCategoryType, UUID, Double, Bool) -> Void
+    let onPayExpense: (ExpenseCategoryType, UUID, Double, ExpenseFundingStrategy) -> Void
+    let expenseCoverageRequirement: (ExpenseCategoryType, UUID, Double) -> CategoryCoverageRequirement?
+    let expenseFundingPreview: (ExpenseCategoryType, UUID, Double, ExpenseFundingStrategy) -> ExpenseFundingPreview?
+    let onPayExpenseWithAutomaticForcedCoverage: (ExpenseCategoryType, UUID, Double, ExpenseFundingStrategy) -> Void
+    let onPayExpenseWithManualForcedCoverage: (ExpenseCategoryType, UUID, Double, [UUID: Double], ExpenseFundingStrategy) -> Void
     let onAddSubcategory: (
         ExpenseCategoryType,
         String,
@@ -15,6 +19,26 @@ struct CategoryAccordionView: View {
         Double,
         Double,
         SubcategoryPriorityLevel
+    ) -> Void
+    let newSubcategoryCoverageRequirement: (ExpenseCategoryType, Double) -> CategoryCoverageRequirement?
+    let onAddSubcategoryWithAutomaticForcedCoverage: (
+        ExpenseCategoryType,
+        String,
+        String,
+        Double,
+        Double,
+        Double,
+        SubcategoryPriorityLevel
+    ) -> Void
+    let onAddSubcategoryWithManualForcedCoverage: (
+        ExpenseCategoryType,
+        String,
+        String,
+        Double,
+        Double,
+        Double,
+        SubcategoryPriorityLevel,
+        [UUID: Double]
     ) -> Void
     let onUpdateSubcategory: (
         ExpenseCategoryType,
@@ -34,21 +58,18 @@ struct CategoryAccordionView: View {
     @State private var expenseTarget: ExpenseTarget?
     @State private var addSubcategoryTarget: AddSubcategoryTarget?
     @State private var editSubcategoryTarget: EditSubcategoryTarget?
-    @State private var pendingPriorityChange: PendingPriorityChange?
     @State private var expenseInput: String = ""
+    @State private var expenseFundingStrategy: ExpenseFundingStrategy = .categoryFirst
     @State private var subcategoryNameInput: String = ""
     @State private var subcategoryPercentInput: String = ""
     @State private var subcategoryMinAmountInput: String = ""
     @State private var subcategoryMaxAmountInput: String = ""
     @State private var subcategoryIconName: String = SubcategoryIconCatalog.selectableSymbols.first ?? SubcategoryIconCatalog.fallbackSymbol
-    @State private var subcategoryPriority: SubcategoryPriorityLevel = .low
-    @State private var useBankForExpense: Bool = false
     @State private var editNameInput: String = ""
     @State private var editPercentInput: String = ""
     @State private var editMinAmountInput: String = ""
     @State private var editMaxAmountInput: String = ""
     @State private var editIconName: String = SubcategoryIconCatalog.selectableSymbols.first ?? SubcategoryIconCatalog.fallbackSymbol
-    @State private var editPriority: SubcategoryPriorityLevel = .low
     @State private var withdrawAmountInput: String = ""
     @State private var depositAmountInput: String = ""
     @State private var suppressTapAfterLongPress: Bool = false
@@ -58,7 +79,11 @@ struct CategoryAccordionView: View {
         currencyCode: String,
         lastIncomeAmount: Double,
         bankAvailableAmount: Double,
-        onPayExpense: @escaping (ExpenseCategoryType, UUID, Double, Bool) -> Void,
+        onPayExpense: @escaping (ExpenseCategoryType, UUID, Double, ExpenseFundingStrategy) -> Void,
+        expenseCoverageRequirement: @escaping (ExpenseCategoryType, UUID, Double) -> CategoryCoverageRequirement?,
+        expenseFundingPreview: @escaping (ExpenseCategoryType, UUID, Double, ExpenseFundingStrategy) -> ExpenseFundingPreview?,
+        onPayExpenseWithAutomaticForcedCoverage: @escaping (ExpenseCategoryType, UUID, Double, ExpenseFundingStrategy) -> Void,
+        onPayExpenseWithManualForcedCoverage: @escaping (ExpenseCategoryType, UUID, Double, [UUID: Double], ExpenseFundingStrategy) -> Void,
         onAddSubcategory: @escaping (
             ExpenseCategoryType,
             String,
@@ -67,6 +92,26 @@ struct CategoryAccordionView: View {
             Double,
             Double,
             SubcategoryPriorityLevel
+        ) -> Void,
+        newSubcategoryCoverageRequirement: @escaping (ExpenseCategoryType, Double) -> CategoryCoverageRequirement?,
+        onAddSubcategoryWithAutomaticForcedCoverage: @escaping (
+            ExpenseCategoryType,
+            String,
+            String,
+            Double,
+            Double,
+            Double,
+            SubcategoryPriorityLevel
+        ) -> Void,
+        onAddSubcategoryWithManualForcedCoverage: @escaping (
+            ExpenseCategoryType,
+            String,
+            String,
+            Double,
+            Double,
+            Double,
+            SubcategoryPriorityLevel,
+            [UUID: Double]
         ) -> Void,
         onUpdateSubcategory: @escaping (
             ExpenseCategoryType,
@@ -87,7 +132,14 @@ struct CategoryAccordionView: View {
         self.lastIncomeAmount = lastIncomeAmount
         self.bankAvailableAmount = bankAvailableAmount
         self.onPayExpense = onPayExpense
+        self.expenseCoverageRequirement = expenseCoverageRequirement
+        self.expenseFundingPreview = expenseFundingPreview
+        self.onPayExpenseWithAutomaticForcedCoverage = onPayExpenseWithAutomaticForcedCoverage
+        self.onPayExpenseWithManualForcedCoverage = onPayExpenseWithManualForcedCoverage
         self.onAddSubcategory = onAddSubcategory
+        self.newSubcategoryCoverageRequirement = newSubcategoryCoverageRequirement
+        self.onAddSubcategoryWithAutomaticForcedCoverage = onAddSubcategoryWithAutomaticForcedCoverage
+        self.onAddSubcategoryWithManualForcedCoverage = onAddSubcategoryWithManualForcedCoverage
         self.onUpdateSubcategory = onUpdateSubcategory
         self.onDeleteSubcategory = onDeleteSubcategory
         self.onWithdrawFunds = onWithdrawFunds
@@ -106,9 +158,9 @@ struct CategoryAccordionView: View {
     var body: some View {
         VStack(spacing: 8) {
             ForEach(distribution.categoryAllocations) { category in
-                let categorySpent = category.subcategoryAllocations.reduce(0) { $0 + $1.spentAmount }
                 let categoryRemaining = category.subcategoryAllocations.reduce(0) { $0 + $1.remainingAmount }
-                let categoryLastIncome = lastIncomeAmount * (category.percentage / 100.0)
+                let categoryMonthlyIncome = category.subcategoryAllocations.reduce(0) { $0 + $1.monthlyIncomeDistributionAmount }
+                let categoryMonthlyExpense = category.subcategoryAllocations.reduce(0) { $0 + $1.monthlyExpenseAmount }
                 let isCategoryExpanded = isExpanded(category.id)
 
                 VStack(spacing: 0) {
@@ -116,8 +168,8 @@ struct CategoryAccordionView: View {
                         category: category,
                         currencyCode: currencyCode,
                         categoryRemaining: categoryRemaining,
-                        categorySpent: categorySpent,
-                        categoryLastIncome: categoryLastIncome,
+                        categoryMonthlyExpense: categoryMonthlyExpense,
+                        categoryMonthlyIncome: categoryMonthlyIncome,
                         isExpanded: isCategoryExpanded,
                         useCompactLayout: hasExpandedCategory,
                         onTap: { toggle(categoryID: category.id) }
@@ -162,14 +214,36 @@ struct CategoryAccordionView: View {
             )
         }
         .sheet(item: $expenseTarget) { target in
+            let coverageRequirement = expenseCoverageRequirement(
+                target.categoryType,
+                target.subcategoryID,
+                nonNegativeValue(from: expenseInput)
+            )
+            let fundingPreview = expenseFundingPreview(
+                target.categoryType,
+                target.subcategoryID,
+                nonNegativeValue(from: expenseInput),
+                expenseFundingStrategy
+            )
+
             ExpenseSheetView(
                 target: target,
                 currencyCode: currencyCode,
                 bankAvailableAmount: bankAvailableAmount,
+                coverageRequirement: coverageRequirement,
+                fundingPreview: fundingPreview,
                 expenseInput: $expenseInput,
-                useBankForExpense: $useBankForExpense,
-                onPay: { amount, useBankIfNeeded in
-                    onPayExpense(target.categoryType, target.subcategoryID, amount, useBankIfNeeded)
+                fundingStrategy: $expenseFundingStrategy,
+                onPay: { amount, fundingStrategy in
+                    onPayExpense(target.categoryType, target.subcategoryID, amount, fundingStrategy)
+                    expenseTarget = nil
+                },
+                onAutoForcedPay: { amount, fundingStrategy in
+                    onPayExpenseWithAutomaticForcedCoverage(target.categoryType, target.subcategoryID, amount, fundingStrategy)
+                    expenseTarget = nil
+                },
+                onManualForcedPay: { amount, allocations, fundingStrategy in
+                    onPayExpenseWithManualForcedCoverage(target.categoryType, target.subcategoryID, amount, allocations, fundingStrategy)
                     expenseTarget = nil
                 },
                 onCancel: {
@@ -178,10 +252,12 @@ struct CategoryAccordionView: View {
             )
         }
         .sheet(item: $addSubcategoryTarget) { target in
-            let highName = priorityHolder(categoryType: target.type, level: .high)?.name ?? "не назначен"
-            let mediumName = priorityHolder(categoryType: target.type, level: .medium)?.name ?? "не назначен"
             let freePercent = maxAllowedPercentForAdd(categoryType: target.type)
             let freeMoney = maxAllowedMoneyForAdd(categoryType: target.type)
+            let coverageRequirement = newSubcategoryCoverageRequirement(
+                target.type,
+                nonNegativeValue(from: subcategoryMinAmountInput)
+            )
 
             AddSubcategorySheetView(
                 target: target,
@@ -189,29 +265,21 @@ struct CategoryAccordionView: View {
                 bankAvailableAmount: bankAvailableAmount,
                 freePercent: freePercent,
                 freeMoney: freeMoney,
-                highPriorityName: highName,
-                mediumPriorityName: mediumName,
+                coverageRequirement: coverageRequirement,
                 subcategoryNameInput: $subcategoryNameInput,
                 subcategoryPercentInput: $subcategoryPercentInput,
                 subcategoryMinAmountInput: $subcategoryMinAmountInput,
                 subcategoryMaxAmountInput: $subcategoryMaxAmountInput,
                 subcategoryIconName: $subcategoryIconName,
-                subcategoryPriority: $subcategoryPriority,
                 canCreate: canCreateSubcategory,
-                onRequestPriorityChange: { level, targetName in
-                    requestPriorityChange(
-                        categoryType: target.type,
-                        desired: level,
-                        currentSubcategoryID: nil,
-                        targetName: targetName,
-                        form: .add
-                    )
-                },
-                onClearPriority: {
-                    subcategoryPriority = .low
-                },
                 onCreate: {
                     createSubcategory(for: target)
+                },
+                onCreateWithAutomaticForcedCoverage: {
+                    createSubcategoryWithAutomaticForcedCoverage(for: target)
+                },
+                onCreateWithManualForcedCoverage: { allocations in
+                    createSubcategoryWithManualForcedCoverage(for: target, allocations: allocations)
                 },
                 onCancel: {
                     addSubcategoryTarget = nil
@@ -219,12 +287,9 @@ struct CategoryAccordionView: View {
             )
         }
         .sheet(item: $editSubcategoryTarget) { target in
-            let highName = priorityHolder(categoryType: target.categoryType, level: .high)?.name ?? "не назначен"
-            let mediumName = priorityHolder(categoryType: target.categoryType, level: .medium)?.name ?? "не назначен"
             let availableForCard = maxAllowedPercentForEdit(target: target)
             let availableMoneyForCard = maxAllowedMoneyForEdit(target: target)
             let currentRemaining = currentRemainingForEdit(target: target)
-            let minimumLevel = minimumLevelForEdit(target: target)
             let currentMaxLimit = currentMaxLimitForEdit(target: target)
 
             EditSubcategorySheetView(
@@ -234,10 +299,7 @@ struct CategoryAccordionView: View {
                 availableForCard: availableForCard,
                 availableMoneyForCard: availableMoneyForCard,
                 currentRemaining: currentRemaining,
-                minimumLevel: minimumLevel,
                 currentMaxLimit: currentMaxLimit,
-                highPriorityName: highName,
-                mediumPriorityName: mediumName,
                 editNameInput: $editNameInput,
                 editPercentInput: $editPercentInput,
                 editMinAmountInput: $editMinAmountInput,
@@ -245,20 +307,7 @@ struct CategoryAccordionView: View {
                 editIconName: $editIconName,
                 withdrawAmountInput: $withdrawAmountInput,
                 depositAmountInput: $depositAmountInput,
-                editPriority: $editPriority,
                 canSave: canSaveEditedSubcategory,
-                onRequestPriorityChange: { level, targetName in
-                    requestPriorityChange(
-                        categoryType: target.categoryType,
-                        desired: level,
-                        currentSubcategoryID: target.subcategoryID,
-                        targetName: targetName,
-                        form: .edit
-                    )
-                },
-                onClearPriority: {
-                    editPriority = .low
-                },
                 onSave: {
                     saveEditedSubcategory(target: target)
                 },
@@ -275,16 +324,6 @@ struct CategoryAccordionView: View {
                 onCancel: {
                     editSubcategoryTarget = nil
                 }
-            )
-        }
-        .alert(item: $pendingPriorityChange) { pending in
-            Alert(
-                title: Text("Смена приоритета"),
-                message: Text("Приоритет \(pending.level.title.lowercased()) сейчас у карточки \"\(pending.fromName)\". Переназначить его карточке \"\(pending.toName)\"?"),
-                primaryButton: .destructive(Text("Переназначить")) {
-                    applyPriorityChange(pending)
-                },
-                secondaryButton: .cancel(Text("Отмена"))
             )
         }
     }
@@ -308,10 +347,12 @@ struct CategoryAccordionView: View {
         let normalizedPercent = nonNegativeValue(from: subcategoryPercentInput)
         let normalizedMinAmount = nonNegativeValue(from: subcategoryMinAmountInput)
         let freePercent = maxAllowedPercentForAdd(categoryType: target.type)
+        let coverageRequirement = newSubcategoryCoverageRequirement(target.type, normalizedMinAmount)
         return !normalizedName.isEmpty
             && normalizedPercent > 0
             && normalizedPercent <= freePercent
             && normalizedMinAmount > 0
+            && (coverageRequirement?.canCover != false)
     }
 
     private var canSaveEditedSubcategory: Bool {
@@ -332,7 +373,7 @@ struct CategoryAccordionView: View {
             currentAmount: subcategory.remainingAmount
         )
         expenseInput = ""
-        useBankForExpense = false
+        expenseFundingStrategy = .categoryFirst
     }
 
     private func openEditSubcategorySheet(for categoryType: ExpenseCategoryType, subcategory: SubcategoryAllocation) {
@@ -349,7 +390,6 @@ struct CategoryAccordionView: View {
         } else {
             editMaxAmountInput = ""
         }
-        editPriority = SubcategoryPriorityLevel(rawValue: subcategory.priority) ?? .low
         withdrawAmountInput = ""
         depositAmountInput = ""
         editSubcategoryTarget = EditSubcategoryTarget(
@@ -367,7 +407,6 @@ struct CategoryAccordionView: View {
         subcategoryMinAmountInput = ""
         subcategoryMaxAmountInput = ""
         subcategoryIconName = SubcategoryIconCatalog.selectableSymbols.first ?? SubcategoryIconCatalog.fallbackSymbol
-        subcategoryPriority = .low
         addSubcategoryTarget = AddSubcategoryTarget(id: category.id, type: category.type, title: category.type.title)
     }
 
@@ -376,10 +415,12 @@ struct CategoryAccordionView: View {
         let mainPercent = nonNegativeValue(from: subcategoryPercentInput)
         let freePercent = maxAllowedPercentForAdd(categoryType: target.type)
         let minAmount = nonNegativeValue(from: subcategoryMinAmountInput)
+        let coverageRequirement = newSubcategoryCoverageRequirement(target.type, minAmount)
         guard !name.isEmpty,
               mainPercent > 0,
               mainPercent <= freePercent,
-              minAmount > 0 else { return }
+              minAmount > 0,
+              coverageRequirement == nil else { return }
 
         let maxAmount = nonNegativeValue(from: subcategoryMaxAmountInput)
 
@@ -390,7 +431,63 @@ struct CategoryAccordionView: View {
             mainPercent,
             minAmount,
             maxAmount,
-            subcategoryPriority
+            .low
+        )
+        addSubcategoryTarget = nil
+    }
+
+    private func createSubcategoryWithAutomaticForcedCoverage(for target: AddSubcategoryTarget) {
+        let name = subcategoryNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let mainPercent = nonNegativeValue(from: subcategoryPercentInput)
+        let freePercent = maxAllowedPercentForAdd(categoryType: target.type)
+        let minAmount = nonNegativeValue(from: subcategoryMinAmountInput)
+        guard !name.isEmpty,
+              mainPercent > 0,
+              mainPercent <= freePercent,
+              minAmount > 0 else { return }
+
+        let coverageRequirement = newSubcategoryCoverageRequirement(target.type, minAmount)
+        guard coverageRequirement?.canCover == true else { return }
+
+        let maxAmount = nonNegativeValue(from: subcategoryMaxAmountInput)
+        onAddSubcategoryWithAutomaticForcedCoverage(
+            target.type,
+            name,
+            subcategoryIconName,
+            mainPercent,
+            minAmount,
+            maxAmount,
+            .low
+        )
+        addSubcategoryTarget = nil
+    }
+
+    private func createSubcategoryWithManualForcedCoverage(
+        for target: AddSubcategoryTarget,
+        allocations: [UUID: Double]
+    ) {
+        let name = subcategoryNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let mainPercent = nonNegativeValue(from: subcategoryPercentInput)
+        let freePercent = maxAllowedPercentForAdd(categoryType: target.type)
+        let minAmount = nonNegativeValue(from: subcategoryMinAmountInput)
+        guard !name.isEmpty,
+              mainPercent > 0,
+              mainPercent <= freePercent,
+              minAmount > 0 else { return }
+
+        let coverageRequirement = newSubcategoryCoverageRequirement(target.type, minAmount)
+        guard coverageRequirement?.canCover == true else { return }
+
+        let maxAmount = nonNegativeValue(from: subcategoryMaxAmountInput)
+        onAddSubcategoryWithManualForcedCoverage(
+            target.type,
+            name,
+            subcategoryIconName,
+            mainPercent,
+            minAmount,
+            maxAmount,
+            .low,
+            allocations
         )
         addSubcategoryTarget = nil
     }
@@ -414,7 +511,7 @@ struct CategoryAccordionView: View {
             mainPercent,
             minAmount,
             maxAmount,
-            editPriority
+            .low
         )
         editSubcategoryTarget = nil
     }
@@ -422,8 +519,7 @@ struct CategoryAccordionView: View {
     private func withdrawFromEditedSubcategory(target: EditSubcategoryTarget) {
         let requested = nonNegativeValue(from: withdrawAmountInput)
         let currentRemaining = currentRemainingForEdit(target: target)
-        let minimumLevel = minimumLevelForEdit(target: target)
-        let maxWithdrawable = max(0, currentRemaining - minimumLevel)
+        let maxWithdrawable = currentRemaining
 
         guard requested > 0, requested <= maxWithdrawable + 0.0001 else { return }
 
@@ -449,46 +545,6 @@ struct CategoryAccordionView: View {
 
         onDepositFunds(target.categoryType, target.subcategoryID, requested)
         depositAmountInput = ""
-    }
-
-    private func requestPriorityChange(
-        categoryType: ExpenseCategoryType,
-        desired: SubcategoryPriorityLevel,
-        currentSubcategoryID: UUID?,
-        targetName: String,
-        form: PriorityForm
-    ) {
-        if let holder = priorityHolder(categoryType: categoryType, level: desired), holder.id != currentSubcategoryID {
-            pendingPriorityChange = PendingPriorityChange(
-                level: desired,
-                fromName: holder.name,
-                toName: targetName,
-                form: form
-            )
-            return
-        }
-
-        applyPriority(level: desired, form: form)
-    }
-
-    private func applyPriorityChange(_ pending: PendingPriorityChange) {
-        applyPriority(level: pending.level, form: pending.form)
-    }
-
-    private func applyPriority(level: SubcategoryPriorityLevel, form: PriorityForm) {
-        switch form {
-        case .add:
-            subcategoryPriority = level
-        case .edit:
-            editPriority = level
-        }
-    }
-
-    private func priorityHolder(categoryType: ExpenseCategoryType, level: SubcategoryPriorityLevel) -> SubcategoryAllocation? {
-        distribution.categoryAllocations
-            .first(where: { $0.type == categoryType })?
-            .subcategoryAllocations
-            .first(where: { $0.priority == level.rawValue })
     }
 
     private func nonNegativeValue(from input: String) -> Double {
@@ -544,14 +600,6 @@ struct CategoryAccordionView: View {
             .remainingAmount ?? 0
     }
 
-    private func minimumLevelForEdit(target: EditSubcategoryTarget) -> Double {
-        distribution.categoryAllocations
-            .first(where: { $0.type == target.categoryType })?
-            .subcategoryAllocations
-            .first(where: { $0.id == target.subcategoryID })?
-            .minLimit ?? 0
-    }
-
     private func currentMaxLimitForEdit(target: EditSubcategoryTarget) -> Double? {
         distribution.categoryAllocations
             .first(where: { $0.type == target.categoryType })?
@@ -602,17 +650,4 @@ struct EditSubcategoryTarget: Identifiable {
     let isSystem: Bool
 
     var id: UUID { subcategoryID }
-}
-
-private enum PriorityForm {
-    case add
-    case edit
-}
-
-private struct PendingPriorityChange: Identifiable {
-    let id = UUID()
-    let level: SubcategoryPriorityLevel
-    let fromName: String
-    let toName: String
-    let form: PriorityForm
 }

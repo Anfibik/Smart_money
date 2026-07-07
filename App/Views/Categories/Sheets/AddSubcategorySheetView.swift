@@ -6,31 +6,26 @@ struct AddSubcategorySheetView: View {
     let bankAvailableAmount: Double
     let freePercent: Double
     let freeMoney: Double
-    let highPriorityName: String
-    let mediumPriorityName: String
+    let coverageRequirement: CategoryCoverageRequirement?
 
     @Binding var subcategoryNameInput: String
     @Binding var subcategoryPercentInput: String
     @Binding var subcategoryMinAmountInput: String
     @Binding var subcategoryMaxAmountInput: String
     @Binding var subcategoryIconName: String
-    @Binding var subcategoryPriority: SubcategoryPriorityLevel
 
     let canCreate: Bool
-    let onRequestPriorityChange: (SubcategoryPriorityLevel, String) -> Void
-    let onClearPriority: () -> Void
     let onCreate: () -> Void
+    let onCreateWithAutomaticForcedCoverage: () -> Void
+    let onCreateWithManualForcedCoverage: ([UUID: Double]) -> Void
     let onCancel: () -> Void
 
     @FocusState private var isNameFocused: Bool
+    @State private var isCoverageChoicePresented = false
+    @State private var isManualCoveragePresented = false
 
     private var requestedPercent: Double {
         nonNegativeValue(from: subcategoryPercentInput)
-    }
-
-    private var priorityTargetName: String {
-        let trimmed = subcategoryNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "новая карточка" : trimmed
     }
 
     var body: some View {
@@ -45,38 +40,16 @@ struct AddSubcategorySheetView: View {
                         .font(.subheadline)
                         .foregroundColor(freePercent > 0 ? .secondary : .red)
 
-                    Text("Свободно денег: \(freeMoney, format: .currency(code: currencyCode))")
+                    Text("Свободно денег: \(currency(freeMoney))")
                         .font(.subheadline)
                         .foregroundColor(freeMoney > 0 ? .secondary : .red)
 
-                    Text("Из них в банке: \(bankAvailableAmount, format: .currency(code: currencyCode))")
+                    Text("Из них в свободном капитале: \(currency(bankAvailableAmount))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Высокий: \(highPriorityName)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text("Средний: \(mediumPriorityName)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    HStack(spacing: 8) {
-                        Button("Высокий") {
-                            onRequestPriorityChange(.high, priorityTargetName)
-                        }
-                        .priorityButtonStyle(selected: subcategoryPriority == .high)
-
-                        Button("Средний") {
-                            onRequestPriorityChange(.medium, priorityTargetName)
-                        }
-                        .priorityButtonStyle(selected: subcategoryPriority == .medium)
-
-                        if subcategoryPriority != .low {
-                            Button("Снять", action: onClearPriority)
-                                .buttonStyle(.bordered)
-                        }
+                    if let coverageRequirement, requestedMinAmount > 0 {
+                        coverageInfo(requirement: coverageRequirement)
                     }
 
                     if freePercent <= 0 {
@@ -84,6 +57,10 @@ struct AddSubcategorySheetView: View {
                             .font(.caption)
                             .foregroundStyle(.red)
                     }
+
+                    Text("Пользовательские карточки всегда создаются с низким приоритетом.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
                     SubcategoryIconPickerView(selectedIconName: $subcategoryIconName)
 
@@ -109,7 +86,13 @@ struct AddSubcategorySheetView: View {
                         .keyboardType(.decimalPad)
                         .textFieldStyle(.roundedBorder)
 
-                    Button("Добавить карточку", action: onCreate)
+                    Button("Добавить карточку") {
+                        if let coverageRequirement, coverageRequirement.canCover {
+                            isCoverageChoicePresented = true
+                        } else {
+                            onCreate()
+                        }
+                    }
                         .buttonStyle(.borderedProminent)
                         .disabled(!canCreate)
                 }
@@ -136,6 +119,38 @@ struct AddSubcategorySheetView: View {
                     isNameFocused = true
                 }
             }
+            .confirmationDialog("Покрытие внутри категории", isPresented: $isCoverageChoicePresented, titleVisibility: .visible) {
+                Button("Авто") {
+                    onCreateWithAutomaticForcedCoverage()
+                }
+
+                Button("Ручной выбор") {
+                    isManualCoveragePresented = true
+                }
+
+                Button("Отмена", role: .cancel) {}
+            } message: {
+                if let coverageRequirement {
+                    Text("Для минимальной суммы новой карточки нужно дополнительно покрыть \(currency(coverageRequirement.shortageAmount)) из других карточек категории.")
+                }
+            }
+            .sheet(isPresented: $isManualCoveragePresented) {
+                if let coverageRequirement {
+                    ForcedCoverageSheetView(
+                        title: "Ручное покрытие",
+                        subtitle: "Выберите, с каких карточек категории снять деньги для новой карточки.",
+                        currencyCode: currencyCode,
+                        requirement: coverageRequirement,
+                        onConfirm: { allocations in
+                            onCreateWithManualForcedCoverage(allocations)
+                            isManualCoveragePresented = false
+                        },
+                        onCancel: {
+                            isManualCoveragePresented = false
+                        }
+                    )
+                }
+            }
         }
     }
 
@@ -146,6 +161,36 @@ struct AddSubcategorySheetView: View {
 
     private func formattedPercent(_ value: Double) -> String {
         String(format: "%.2f", value).replacingOccurrences(of: ".00", with: "")
+    }
+
+    private var requestedMinAmount: Double {
+        nonNegativeValue(from: subcategoryMinAmountInput)
+    }
+
+    private func coverageInfo(requirement: CategoryCoverageRequirement) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Автоматически закроется свободными деньгами категории: \(currency(requirement.automaticCategoryAmount))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Text("Автоматически закроется свободным капиталом: \(currency(requirement.bankContributionAmount))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if requirement.canCover {
+                Text("Останется покрыть внутри категории: \(currency(requirement.shortageAmount)). Можно выбрать Авто или Ручной режим.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            } else {
+                Text("Новая карточка недоступна: категория не покрывает минимальную сумму даже с заходом в минимумы. Максимум доступно: \(currency(requirement.totalAvailableAmount)).")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    private func currency(_ value: Double) -> String {
+        AppCurrencyFormatter.string(value, currencyCode: currencyCode)
     }
 }
 
@@ -241,13 +286,138 @@ private struct SubcategoryIconPickerSheetView: View {
     }
 }
 
-private extension View {
-    @ViewBuilder
-    func priorityButtonStyle(selected: Bool) -> some View {
-        if selected {
-            buttonStyle(.borderedProminent)
-        } else {
-            buttonStyle(.bordered)
+struct ForcedCoverageSheetView: View {
+    let title: String
+    let subtitle: String
+    let currencyCode: String
+    let requirement: CategoryCoverageRequirement
+    let onConfirm: ([UUID: Double]) -> Void
+    let onCancel: () -> Void
+
+    @State private var allocations: [UUID: String] = [:]
+    @FocusState private var focusedCandidateID: UUID?
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(subtitle)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+
+                        Text("Нужно покрыть: \(currency(requirement.shortageAmount))")
+                            .font(.headline)
+
+                        Text("Выбрано: \(currency(selectedTotal))")
+                            .font(.subheadline)
+                            .foregroundStyle(isSelectionValid ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.orange))
+                    }
+                    .padding()
+                    .background(Color(.systemGray6))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                    ForEach(requirement.candidates) { candidate in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 10) {
+                                Image(systemName: candidate.iconName)
+                                    .frame(width: 24)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(candidate.name)
+                                        .font(.subheadline.weight(.medium))
+                                    Text("Доступно: \(currency(candidate.availableAmount))")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                            }
+
+                            TextField(
+                                "Сумма списания",
+                                text: binding(for: candidate)
+                            )
+                            .keyboardType(.decimalPad)
+                            .textFieldStyle(.roundedBorder)
+                            .focused($focusedCandidateID, equals: candidate.id)
+                        }
+                        .padding()
+                        .background(Color(.systemGray6))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+
+                    if !isSelectionValid {
+                        Text("Суммы должны точно покрывать задачу и не превышать доступное в каждой карточке.")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Отмена", action: onCancel)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Подтвердить") {
+                        onConfirm(resolvedAllocations)
+                    }
+                    .disabled(!isSelectionValid)
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Готово") {
+                        focusedCandidateID = nil
+                    }
+                }
+            }
         }
+    }
+
+    private var resolvedAllocations: [UUID: Double] {
+        requirement.candidates.reduce(into: [:]) { partialResult, candidate in
+            let amount = parsedAmount(allocations[candidate.id] ?? "")
+            if amount > 0 {
+                partialResult[candidate.id] = amount
+            }
+        }
+    }
+
+    private var selectedTotal: Double {
+        roundToCents(resolvedAllocations.values.reduce(0, +))
+    }
+
+    private var isSelectionValid: Bool {
+        guard abs(selectedTotal - requirement.shortageAmount) < 0.01 else { return false }
+
+        for candidate in requirement.candidates {
+            let amount = resolvedAllocations[candidate.id] ?? 0
+            if amount > candidate.availableAmount + 0.0001 {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    private func binding(for candidate: CategoryCoverageCandidate) -> Binding<String> {
+        Binding(
+            get: { allocations[candidate.id] ?? "" },
+            set: { allocations[candidate.id] = $0 }
+        )
+    }
+
+    private func parsedAmount(_ input: String) -> Double {
+        let normalized = input.replacingOccurrences(of: ",", with: ".")
+        return max(0, Double(normalized) ?? 0)
+    }
+
+    private func roundToCents(_ value: Double) -> Double {
+        (value * 100).rounded() / 100
+    }
+
+    private func currency(_ value: Double) -> String {
+        AppCurrencyFormatter.string(value, currencyCode: currencyCode)
     }
 }

@@ -8,13 +8,16 @@ struct StartOnboardingFlowView: View {
     @State private var capitalInput = ""
     @State private var housingType: SetupHousingType = .rented
     @State private var housingCostInput = ""
-    @State private var carsCount = 0
+    @State private var hasCar = false
     @State private var dependentsCount = 0
+    @State private var elderlyDependentsCount = 0
     @State private var childrenCount = 0
+    @State private var petsCount = 0
     @State private var hasCredit = false
     @State private var creditPaymentInput = ""
     @State private var strategy: StartStrategyType = .stability
-    @State private var customCards: [EditableCustomCard] = []
+    @State private var expandedCardKeys: Set<String> = []
+    @State private var selectedRecommendationKeys: Set<SystemSubcategoryKey> = []
 
     private let builder = StartOnboardingBuilder()
 
@@ -31,9 +34,9 @@ struct StartOnboardingFlowView: View {
                         case 2:
                             familyStep
                         case 3:
-                            customCardsStep
-                        case 4:
                             strategyStep
+                        case 4:
+                            customCardsStep
                         default:
                             summaryStep
                         }
@@ -70,13 +73,13 @@ struct StartOnboardingFlowView: View {
         VStack(alignment: .leading, spacing: 14) {
             fieldCard {
                 inputField(
-                    title: "Средний месячный доход за 12 месяцев*",
+                    title: "Средний доход за месяц*",
                     text: $monthlyIncomeInput,
-                    prompt: "Например, 120000"
+                    prompt: "Например, 120 000"
                 )
 
                 inputField(
-                    title: "Текущий капитал в наличных*",
+                    title: "Накопленный капитал*",
                     text: $capitalInput,
                     prompt: "Можно отрицательное значение"
                 )
@@ -98,8 +101,6 @@ struct StartOnboardingFlowView: View {
                     text: $housingCostInput,
                     prompt: "Ежемесячная сумма"
                 )
-
-                Stepper("Количество авто: \(carsCount)", value: $carsCount, in: 0...10)
             }
 
             if !isStepOneValid {
@@ -111,9 +112,15 @@ struct StartOnboardingFlowView: View {
     private var familyStep: some View {
         VStack(alignment: .leading, spacing: 14) {
             fieldCard {
-                Stepper("Количество взрослых иждивенцев: \(dependentsCount)", value: $dependentsCount, in: 0...12)
+                Stepper("Взрослые: \(dependentsCount)", value: $dependentsCount, in: 0...12)
 
-                Stepper("Количество детей до 16 лет: \(childrenCount)", value: $childrenCount, in: 0...12)
+                Stepper("Стариков: \(elderlyDependentsCount)", value: $elderlyDependentsCount, in: 0...12)
+
+                Stepper("Дети до 12 лет: \(childrenCount)", value: $childrenCount, in: 0...12)
+
+                Stepper("Домашние животныхе: \(petsCount)", value: $petsCount, in: 0...12)
+
+                Toggle("Есть авто", isOn: $hasCar)
 
                 Toggle("Есть кредит", isOn: $hasCredit)
 
@@ -121,7 +128,7 @@ struct StartOnboardingFlowView: View {
                     inputField(
                         title: "Ежемесячный платеж по кредиту*",
                         text: $creditPaymentInput,
-                        prompt: "Например, 15000"
+                        prompt: "Например, 15 000"
                     )
                 }
             }
@@ -139,24 +146,21 @@ struct StartOnboardingFlowView: View {
 
     private var customCardsStep: some View {
         VStack(alignment: .leading, spacing: 16) {
-            infoCard(
-                title: "Системные карты",
-                text: "Они создаются автоматически и не редактируются на этом этапе. Ниже можно добавить только пользовательские карты. Итоговые суммы и проценты будут посчитаны после выбора стратегии."
-            )
-
-            ForEach(ExpenseCategoryType.allCases, id: \.self) { categoryType in
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(categoryType.title)
-                        .font(.headline)
-
-                    systemCardsBlock(for: categoryType)
-                    customCardsBlock(for: categoryType)
+            if let preview {
+                let descriptors = builder.onboardingCardDescriptors(for: resolvedInput)
+                ForEach(preview.configuration.categoryBudgets) { budget in
+                    if let allocation = preview.distribution.categoryAllocations.first(where: { $0.type == budget.type }) {
+                        onboardingCategorySection(
+                            budget: budget,
+                            allocation: allocation,
+                            descriptors: descriptors.filter { $0.categoryType == budget.type }
+                        )
+                    }
                 }
+            } else {
+                validationText("Не удалось рассчитать карты потребностей. Проверьте введенные значения.")
             }
 
-            if !areCustomCardsValid {
-                validationText("Заполните название и минимальную сумму у всех пользовательских карт. Процент можно оставить пустым.")
-            }
         }
     }
 
@@ -213,58 +217,6 @@ struct StartOnboardingFlowView: View {
                     .background(AppTheme.panelBackground)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                 }
-
-                ForEach(preview.configuration.categoryBudgets) { budget in
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text(budget.type.title)
-                                .font(.headline)
-                            Spacer()
-                            Text("\(budget.percentage, specifier: "%.0f")%")
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Text("\(budget.monthlyAmount, format: .currency(code: "UAH")) в месяц")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-
-                        if let allocation = preview.distribution.categoryAllocations.first(where: { $0.type == budget.type }) {
-                            ForEach(allocation.subcategoryAllocations) { subcategory in
-                                HStack(alignment: .top, spacing: 12) {
-                                    Image(systemName: subcategory.iconName)
-                                        .frame(width: 24)
-                                        .foregroundStyle(subcategory.isSystem ? .primary : .secondary)
-
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(subcategory.name)
-                                            .font(.subheadline.weight(.medium))
-
-                                        Text("Мин.: \((subcategory.minLimit ?? 0), format: .currency(code: "UAH"))")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-
-                                        Text("Базовый процент: \(subcategory.basePercentage, specifier: "%.2f")%")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-
-                                        if subcategory.deficitAmount > 0.01 {
-                                            Text("Дефицит: \(subcategory.deficitAmount, format: .currency(code: "UAH"))")
-                                                .font(.caption)
-                                                .foregroundStyle(.red)
-                                        }
-                                    }
-
-                                    Spacer()
-                                }
-                                .padding(.vertical, 4)
-                            }
-                        }
-                    }
-                    .padding()
-                    .background(AppTheme.panelBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-                }
             }
         } else {
             validationText("Не удалось собрать итоговую конфигурацию. Проверьте введенные значения.")
@@ -277,20 +229,20 @@ struct StartOnboardingFlowView: View {
                 .font(.headline)
 
             metricRow("Стратегия", strategy.title)
-            metricRow("Обязательные минимумы в месяц", preview.configuration.monthlyMinimumExcludingEmergency, isCurrency: true)
+            metricRow("Минимальная сумма в месяц для проживания", preview.configuration.monthlyMinimumExcludingEmergency, isCurrency: true)
             metricRow("Базовые расходы на жизнь", preview.configuration.mandatoryLivingMonthly, isCurrency: true)
-            metricRow("Цель подушки", preview.configuration.emergencyTarget, isCurrency: true)
-            metricRow("Стартовый капитал, ушедший в минимумы", preview.configuration.capitalAppliedToMinimums, isCurrency: true)
-            metricRow("Свободный капитал после запуска", preview.configuration.remainingFreeCapital, isCurrency: true)
+            metricRow("Величина финансовой подушки", preview.configuration.emergencyTarget, isCurrency: true)
+            metricRow("Данная сумма взята из вашего капитала, так как ежемесячного дохода не хватает для покрытия минимальной потребности", preview.configuration.capitalAppliedToMinimums, isCurrency: true)
+            metricRow("\"Свободный капитал\" - остаток от вашего капитала после распределения дефицитов", preview.configuration.remainingFreeCapital, isCurrency: true)
 
             if let months = preview.configuration.freeCapitalCoverageMonths {
-                metricRow("Хватит без подушки", "\(String(format: "%.2f", months)) мес.")
+                metricRow("Хватит свободного капитала на:", "\(String(format: "%.2f", months)) мес.")
             } else {
-                metricRow("Хватит без подушки", "Не определяется")
+                metricRow("Срок проживания в месяцах на свободном капитале", "Не определяется")
             }
 
             if preview.configuration.totalDeficit > 0.01 {
-                metricRow("Остаточный дефицит", preview.configuration.totalDeficit, isCurrency: true, color: .red)
+                metricRow("Дефицит денег для покрытия минимального проживания", preview.configuration.totalDeficit, isCurrency: true, color: .red)
             }
         }
         .padding()
@@ -324,7 +276,7 @@ struct StartOnboardingFlowView: View {
                 .font(.subheadline)
             Spacer()
             if isCurrency {
-                Text(value, format: .currency(code: "UAH"))
+                Text(currency(value))
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(color)
             } else {
@@ -335,104 +287,140 @@ struct StartOnboardingFlowView: View {
         }
     }
 
-    private func systemCardsBlock(for categoryType: ExpenseCategoryType) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(systemCards(for: categoryType)) { card in
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: card.iconName)
-                        .frame(width: 24)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(card.name)
-                            .font(.subheadline.weight(.medium))
-                        if let note = card.note {
-                            Text(note)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Spacer()
-                }
-                .padding(12)
-                .background(AppTheme.panelBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-            }
+    private func onboardingCategorySection(
+        budget: StartCategoryBudget,
+        allocation: CategoryAllocation,
+        descriptors: [StartSystemCardDescriptor]
+    ) -> some View {
+        let displayedCards = descriptors.map { descriptor in
+            OnboardingDisplayedCard(
+                descriptor: descriptor,
+                allocation: allocation.subcategoryAllocations.first(where: { $0.systemKey == descriptor.systemKey })
+            )
         }
-    }
+        let activeCards = displayedCards.filter { !$0.descriptor.isRecommended || $0.descriptor.isActive }
+        let recommendedCards = displayedCards.filter { $0.descriptor.isRecommended && !$0.descriptor.isActive }
+        let totalIncome = preview?.distribution.income ?? 0
+        let settledAmount = allocation.allocatedAmount
 
-    private func customCardsBlock(for categoryType: ExpenseCategoryType) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            let indices = customCardIndices(for: categoryType)
-
-            if indices.isEmpty {
-                Text("Пользовательских карт пока нет.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(indices, id: \.self) { index in
-                    customCardEditor(index: index)
-                }
-            }
-
-            Button {
-                appendCustomCard(to: categoryType)
-            } label: {
-                Label("Добавить карту", systemImage: "plus.circle.fill")
-            }
-            .buttonStyle(.bordered)
-        }
-    }
-
-    private func customCardEditor(index: Int) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        return VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(customCards[index].categoryType.title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(budget.type.title)
+                    .font(.headline)
                 Spacer()
-                Button(role: .destructive) {
-                    customCards.remove(at: index)
-                } label: {
-                    Image(systemName: "trash")
+                Text("\(budget.percentage, specifier: "%.0f")%")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("Зачислено \(currency(settledAmount)) из \(currency(budget.monthlyAmount))")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Текущие")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                ForEach(activeCards) { card in
+                    onboardingSubcategoryCard(card, totalIncome: totalIncome)
                 }
             }
 
-            inputField(
-                title: "Название*",
-                text: Binding(
-                    get: { customCards[index].name },
-                    set: { customCards[index].name = $0 }
-                ),
-                prompt: "Например, Путешествия"
-            )
+            if !recommendedCards.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Рекомендуемые")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
 
-            SubcategoryIconPickerView(
-                selectedIconName: Binding(
-                    get: { customCards[index].iconName },
-                    set: { customCards[index].iconName = $0 }
-                )
-            )
-
-            inputField(
-                title: "Минимальная сумма*",
-                text: Binding(
-                    get: { customCards[index].minInput },
-                    set: { customCards[index].minInput = $0 }
-                ),
-                prompt: "Обязательный минимум"
-            )
-
-            inputField(
-                title: "Процент внутри категории",
-                text: Binding(
-                    get: { customCards[index].percentageInput },
-                    set: { customCards[index].percentageInput = $0 }
-                ),
-                prompt: "Необязательно"
-            )
+                    ForEach(recommendedCards) { card in
+                        onboardingSubcategoryCard(card, totalIncome: totalIncome)
+                    }
+                }
+            }
         }
         .padding()
         .background(AppTheme.panelBackground)
         .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func onboardingSubcategoryCard(
+        _ card: OnboardingDisplayedCard,
+        totalIncome: Double
+    ) -> some View {
+        let descriptor = card.descriptor
+        let allocation = card.allocation
+        let incomeShare = allocation.map { incomeSharePercent(for: $0, totalIncome: totalIncome) } ?? 0
+        let isInactiveRecommendation = descriptor.isRecommended && !descriptor.isActive
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: descriptor.iconName)
+                    .frame(width: 24)
+                    .foregroundStyle(isInactiveRecommendation ? .secondary : .primary)
+
+                Text(descriptor.name)
+                    .font(.subheadline.weight(.medium))
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text("От дохода: \(percentText(incomeShare))")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(currency(allocation?.allocatedAmount ?? 0))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(isInactiveRecommendation ? .secondary : .primary)
+
+                Text(descriptor.note ?? " ")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, minHeight: 34, alignment: .topLeading)
+            }
+        }
+        .padding()
+        .background(AppTheme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .opacity(isInactiveRecommendation ? 0.6 : 1)
+        .contentShape(RoundedRectangle(cornerRadius: 14))
+        .onTapGesture {
+            guard descriptor.isRecommended else { return }
+            withAnimation(.easeInOut(duration: 0.2)) {
+                if descriptor.isActive {
+                    selectedRecommendationKeys.remove(descriptor.systemKey)
+                } else {
+                    selectedRecommendationKeys.insert(descriptor.systemKey)
+                }
+            }
+        }
+    }
+
+    private func onboardingParameterRow(
+        _ title: String,
+        _ value: String,
+        valueColor: Color = .secondary,
+        titleFont: Font = .caption,
+        valueFont: Font = .caption.weight(.medium)
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(title)
+                .font(titleFont)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 12)
+            Text(value)
+                .font(valueFont)
+                .foregroundStyle(valueColor)
+                .multilineTextAlignment(.trailing)
+        }
     }
 
     private var footer: some View {
@@ -510,11 +498,11 @@ struct StartOnboardingFlowView: View {
         case 1:
             return "Финансы и жилье"
         case 2:
-            return "Семья и обязательства"
+            return "Иждивенцы"
         case 3:
-            return "Карты по умолчанию и свои карты"
-        case 4:
             return "Выбор стратегии"
+        case 4:
+            return "Карты потребностей"
         default:
             return "Итоговая конфигурация"
         }
@@ -523,15 +511,15 @@ struct StartOnboardingFlowView: View {
     private var stepDescription: String {
         switch currentStep {
         case 1:
-            return "Собираем базовые данные для стартового бюджета."
+            return "Введи данные для распределения стартового бюджета на потребности."
         case 2:
-            return "Учитываем состав семьи, детей и кредитные платежи."
+            return "Данные параметры влияют на дополнительные расходы по содержанию иждивенцев"
         case 3:
-            return "Показываем системные карты и даем добавить пользовательские."
+            return "Выбери стратегию своего бюджета."
         case 4:
-            return "Определяем месячное распределение по категориям."
+            return "Проверь финальные карты потребностей."
         default:
-            return "Проверяем итоговые минимумы, свободный капитал и дефициты."
+            return "Итоговые данные."
         }
     }
 
@@ -564,14 +552,6 @@ struct StartOnboardingFlowView: View {
         return ""
     }
 
-    private var areCustomCardsValid: Bool {
-        customCards.allSatisfy { card in
-            !card.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                && parsedDouble(card.minInput) > 0
-                && (card.percentageInput.isEmpty || parsedDouble(card.percentageInput) > 0)
-        }
-    }
-
     private var canAdvance: Bool {
         switch currentStep {
         case 1:
@@ -579,7 +559,7 @@ struct StartOnboardingFlowView: View {
         case 2:
             return isStepTwoValid
         case 3:
-            return areCustomCardsValid
+            return true
         case 4:
             return true
         default:
@@ -588,7 +568,7 @@ struct StartOnboardingFlowView: View {
     }
 
     private var preview: StartOnboardingPreview? {
-        guard isStepOneValid, isStepTwoValid, areCustomCardsValid else { return nil }
+        guard isStepOneValid, isStepTwoValid else { return nil }
         return builder.buildPreview(input: resolvedInput)
     }
 
@@ -598,50 +578,16 @@ struct StartOnboardingFlowView: View {
             capital: parsedDouble(capitalInput),
             housingType: housingType,
             housingCost: parsedDouble(housingCostInput),
-            carsCount: carsCount,
+            hasCar: hasCar,
             dependentsCount: dependentsCount,
+            elderlyDependentsCount: elderlyDependentsCount,
             childrenCount: childrenCount,
+            petsCount: petsCount,
             hasCredit: hasCredit,
             creditMonthlyPayment: parsedDouble(creditPaymentInput),
             strategy: strategy,
-            customCards: customCards.compactMap { card in
-                let name = card.name.trimmingCharacters(in: .whitespacesAndNewlines)
-                let minLimit = parsedDouble(card.minInput)
-                guard !name.isEmpty, minLimit > 0 else { return nil }
-                let percentValue = card.percentageInput.isEmpty ? nil : parsedDouble(card.percentageInput)
-                return StartCustomCardInput(
-                    id: card.id,
-                    categoryType: card.categoryType,
-                    name: name,
-                    iconName: card.iconName,
-                    minLimit: minLimit,
-                    percentage: percentValue
-                )
-            }
-        )
-    }
-
-    private func systemCards(for categoryType: ExpenseCategoryType) -> [StartSystemCardDescriptor] {
-        StartOnboardingBuilder.systemCardDescriptors(
-            housingType: housingType,
-            carsCount: carsCount,
-            childrenCount: childrenCount,
-            capital: parsedDouble(capitalInput),
-            hasCredit: hasCredit
-        )
-        .filter { $0.categoryType == categoryType }
-    }
-
-    private func customCardIndices(for categoryType: ExpenseCategoryType) -> [Int] {
-        customCards.indices.filter { customCards[$0].categoryType == categoryType }
-    }
-
-    private func appendCustomCard(to categoryType: ExpenseCategoryType) {
-        customCards.append(
-            EditableCustomCard(
-                categoryType: categoryType,
-                iconName: SubcategoryIconCatalog.selectableSymbols.first ?? SubcategoryIconCatalog.fallbackSymbol
-            )
+            customCards: [],
+            selectedRecommendationKeys: Array(selectedRecommendationKeys).sorted { $0.rawValue < $1.rawValue }
         )
     }
 
@@ -651,29 +597,102 @@ struct StartOnboardingFlowView: View {
             .replacingOccurrences(of: ",", with: ".")
         return Double(normalized) ?? 0
     }
+
+    private func currency(_ value: Double) -> String {
+        AppCurrencyFormatter.string(value, currencyCode: "UAH")
+    }
+
+    private func categoryBasePercentage(for allocation: CategoryAllocation) -> Double {
+        allocation.subcategoryAllocations.reduce(0) { partialResult, subcategory in
+            partialResult + subcategory.basePercentage
+        }
+    }
+
+    private func currentMinimumAmount(for subcategory: SubcategoryAllocation) -> Double {
+        let minimum = max(0, subcategory.minLimit ?? 0)
+        return max(0, minimum - max(0, subcategory.deficitAmount))
+    }
+
+    private func maxLimitText(for subcategory: SubcategoryAllocation) -> String {
+        guard let maxLimit = subcategory.maxLimit, maxLimit > 0 else {
+            return "Не задана"
+        }
+        return currency(maxLimit)
+    }
+
+    private func percentText(_ value: Double) -> String {
+        "\(String(format: "%.2f", value))%"
+    }
+
+    private func incomeSharePercent(
+        for subcategory: SubcategoryAllocation,
+        totalIncome: Double
+    ) -> Double {
+        guard totalIncome > 0.0001 else { return 0 }
+        return (subcategory.allocatedAmount / totalIncome) * 100.0
+    }
+
+    private func onboardingCardExpansionKey(
+        categoryType: ExpenseCategoryType,
+        subcategory: SubcategoryAllocation
+    ) -> String {
+        let normalizedName = subcategory.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return "\(categoryType.rawValue)|\(subcategory.isSystem ? "system" : "custom")|\(normalizedName)|\(subcategory.iconName)"
+    }
+
+    private func toggleOnboardingCardExpansion(key: String) {
+        if expandedCardKeys.contains(key) {
+            expandedCardKeys.remove(key)
+        } else {
+            expandedCardKeys.insert(key)
+        }
+    }
+
+    private func cardDescription(for subcategory: SubcategoryAllocation) -> String? {
+        switch subcategory.name {
+        case "Жилье":
+            return housingType == .rented
+                ? "Аренда, коммунальные, ремонт, клининг..."
+                : "Коммунальные, ремонт, клининг..."
+        case "Питание":
+            return "Продукты, кафе, столовые, фастфуд..."
+        case "Здоровье":
+            return "Лекарства, витамины, бады, больницы, стоматология, пансионаты, процедуры"
+        case "Гигиена":
+            return "Парикмахерские, уход за телом и зубами..."
+        case "Дети":
+            return "Все детские расходы, кроме питания и здоровья"
+        case "Транспорт":
+            return hasCar ? "Бензин, ТО, ремонт, обслуживание, тюнинг" : "Общественный транспорт, такси"
+        case "Животные":
+            return "Корм, уход, ветврач"
+        case "Шоппинг", "Шопинг":
+            return "Торговые центы, одежда, любой вид покупок"
+        case "Хобби":
+            return "Затраты на любимое дело"
+        case "Развлечения", "Досуг":
+            return "Театры, прогулки, концерты, клубы..."
+        case "Путешествия", "Путешествие":
+            return "Поездки, билеты, отпуск"
+        case "Подарки":
+            return "Праздники, сюрпризы, внимание близким"
+        case "Спорт":
+            return "Зал, секции, инвентарь"
+        case "Подушка":
+            return "Финансовая продушка на 6 месяцев проживания"
+        case "Долг":
+            return "Создается при отрицательном капитале"
+        case "Кредит":
+            return "Создается при наличии ежемесячного платежа"
+        default:
+            return nil
+        }
+    }
 }
 
-private struct EditableCustomCard: Identifiable, Hashable {
-    let id: UUID
-    let categoryType: ExpenseCategoryType
-    var name: String
-    var iconName: String
-    var minInput: String
-    var percentageInput: String
+private struct OnboardingDisplayedCard: Identifiable {
+    let descriptor: StartSystemCardDescriptor
+    let allocation: SubcategoryAllocation?
 
-    init(
-        id: UUID = UUID(),
-        categoryType: ExpenseCategoryType,
-        name: String = "",
-        iconName: String,
-        minInput: String = "",
-        percentageInput: String = ""
-    ) {
-        self.id = id
-        self.categoryType = categoryType
-        self.name = name
-        self.iconName = iconName
-        self.minInput = minInput
-        self.percentageInput = percentageInput
-    }
+    var id: String { descriptor.id }
 }

@@ -7,10 +7,7 @@ struct EditSubcategorySheetView: View {
     let availableForCard: Double
     let availableMoneyForCard: Double
     let currentRemaining: Double
-    let minimumLevel: Double
     let currentMaxLimit: Double?
-    let highPriorityName: String
-    let mediumPriorityName: String
 
     @Binding var editNameInput: String
     @Binding var editPercentInput: String
@@ -19,11 +16,8 @@ struct EditSubcategorySheetView: View {
     @Binding var editIconName: String
     @Binding var withdrawAmountInput: String
     @Binding var depositAmountInput: String
-    @Binding var editPriority: SubcategoryPriorityLevel
 
     let canSave: Bool
-    let onRequestPriorityChange: (SubcategoryPriorityLevel, String) -> Void
-    let onClearPriority: () -> Void
     let onSave: () -> Void
     let onWithdraw: () -> Void
     let onDeposit: () -> Void
@@ -41,7 +35,7 @@ struct EditSubcategorySheetView: View {
     }
 
     private var maxWithdrawable: Double {
-        max(0, currentRemaining - minimumLevel)
+        max(0, currentRemaining)
     }
 
     private var canWithdraw: Bool {
@@ -67,11 +61,6 @@ struct EditSubcategorySheetView: View {
         requestedDeposit > 0 && requestedDeposit <= maxDepositable + 0.0001
     }
 
-    private var priorityTargetName: String {
-        let trimmed = editNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? target.subcategoryName : trimmed
-    }
-
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -84,39 +73,19 @@ struct EditSubcategorySheetView: View {
                         .font(.subheadline)
                         .foregroundColor(availableForCard > 0 ? .secondary : .red)
 
-                    Text("Свободно денег для этой карточки: \(availableMoneyForCard, format: .currency(code: currencyCode))")
+                    Text("Свободно денег для этой карточки: \(currency(availableMoneyForCard))")
                         .font(.subheadline)
                         .foregroundColor(availableMoneyForCard > 0 ? .secondary : .red)
 
-                    Text("Из них в банке: \(bankAvailableAmount, format: .currency(code: currencyCode))")
+                    Text("Из них в свободном капитале: \(currency(bankAvailableAmount))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Высокий: \(highPriorityName)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text("Средний: \(mediumPriorityName)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    HStack(spacing: 8) {
-                        Button("Высокий") {
-                            onRequestPriorityChange(.high, priorityTargetName)
-                        }
-                        .priorityButtonStyle(selected: editPriority == .high)
-
-                        Button("Средний") {
-                            onRequestPriorityChange(.medium, priorityTargetName)
-                        }
-                        .priorityButtonStyle(selected: editPriority == .medium)
-
-                        if editPriority != .low {
-                            Button("Снять", action: onClearPriority)
-                                .buttonStyle(.bordered)
-                        }
-                    }
+                    Text(target.isSystem
+                        ? "Приоритет системной карточки задаётся правилами приложения."
+                        : "Пользовательские карточки всегда имеют низкий приоритет.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
                     if availableForCard <= 0 {
                         Text("Лимит 100% исчерпан. Увеличение процента недоступно.")
@@ -156,18 +125,14 @@ struct EditSubcategorySheetView: View {
                     Divider()
                         .padding(.vertical, 2)
 
-                    Text("Изъятие средств в банку")
+                    Text("Изъятие в свободный капитал")
                         .font(.subheadline.weight(.semibold))
 
-                    Text("Текущий остаток: \(currentRemaining, format: .currency(code: currencyCode))")
+                    Text("Текущий остаток: \(currency(currentRemaining))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Text("Минимальный уровень: \(minimumLevel, format: .currency(code: currencyCode))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Text("Можно изъять: \(maxWithdrawable, format: .currency(code: currencyCode))")
+                    Text("Можно изъять: \(currency(maxWithdrawable))")
                         .font(.caption)
                         .foregroundColor(maxWithdrawable > 0 ? .secondary : .red)
 
@@ -176,7 +141,7 @@ struct EditSubcategorySheetView: View {
                         .textFieldStyle(.roundedBorder)
 
                     if requestedWithdraw > maxWithdrawable, requestedWithdraw > 0 {
-                        Text("Сумма слишком большая: после изъятия остаток не может быть ниже минимального уровня.")
+                        Text("Сумма слишком большая: нельзя изъять больше текущего остатка карточки.")
                             .font(.caption)
                             .foregroundStyle(.red)
                     }
@@ -188,18 +153,18 @@ struct EditSubcategorySheetView: View {
                     Divider()
                         .padding(.vertical, 2)
 
-                    Text("Пополнение из банки")
+                    Text("Пополнение из свободного капитала")
                         .font(.subheadline.weight(.semibold))
 
-                    Text("Доступно в банке: \(bankAvailableAmount, format: .currency(code: currencyCode))")
+                    Text("Доступно в свободном капитале: \(currency(bankAvailableAmount))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Text("Лимит пополнения по максимуму: \(maxAllowedByMaxLimit, format: .currency(code: currencyCode))")
+                    Text("Лимит пополнения по максимуму: \(currency(maxAllowedByMaxLimit))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Text("Можно пополнить: \(maxDepositable, format: .currency(code: currencyCode))")
+                    Text("Можно пополнить: \(currency(maxDepositable))")
                         .font(.caption)
                         .foregroundColor(maxDepositable > 0 ? .secondary : .red)
 
@@ -208,12 +173,12 @@ struct EditSubcategorySheetView: View {
                         .textFieldStyle(.roundedBorder)
 
                     if requestedDeposit > maxDepositable, requestedDeposit > 0 {
-                        Text("Сумма слишком большая: пополнение ограничено банкой и максимальным лимитом карточки.")
+                        Text("Сумма слишком большая: пополнение ограничено свободным капиталом и максимальным лимитом карточки.")
                             .font(.caption)
                             .foregroundStyle(.red)
                     }
 
-                    Button("Пополнить из банки", action: onDeposit)
+                    Button("Пополнить из свободного капитала", action: onDeposit)
                         .buttonStyle(.bordered)
                         .disabled(!canDeposit)
 
@@ -228,7 +193,7 @@ struct EditSubcategorySheetView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Отмена", action: onCancel)
+                    Button("Назад", action: onCancel)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
@@ -255,18 +220,11 @@ struct EditSubcategorySheetView: View {
         return max(0, Double(normalized) ?? 0)
     }
 
+    private func currency(_ value: Double) -> String {
+        AppCurrencyFormatter.string(value, currencyCode: currencyCode)
+    }
+
     private func formattedPercent(_ value: Double) -> String {
         String(format: "%.2f", value).replacingOccurrences(of: ".00", with: "")
-    }
-}
-
-private extension View {
-    @ViewBuilder
-    func priorityButtonStyle(selected: Bool) -> some View {
-        if selected {
-            buttonStyle(.borderedProminent)
-        } else {
-            buttonStyle(.bordered)
-        }
     }
 }

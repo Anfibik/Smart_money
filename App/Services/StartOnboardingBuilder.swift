@@ -88,105 +88,8 @@ struct StartOnboardingBuilder {
         )
     }
 
-    static func systemCardDescriptors(
-        housingType: SetupHousingType,
-        carsCount: Int,
-        childrenCount: Int,
-        capital: Double,
-        hasCredit: Bool
-    ) -> [StartSystemCardDescriptor] {
-        var cards: [StartSystemCardDescriptor] = [
-            StartSystemCardDescriptor(
-                categoryType: .essentials,
-                name: "Жилье",
-                iconName: defaultSystemIcon(for: "Жилье"),
-                note: housingType == .rented ? "Аренда" : "Своё жилье"
-            ),
-            StartSystemCardDescriptor(
-                categoryType: .essentials,
-                name: "Питание",
-                iconName: defaultSystemIcon(for: "Питание"),
-                note: "Обязательная карта"
-            ),
-            StartSystemCardDescriptor(
-                categoryType: .essentials,
-                name: "Здоровье",
-                iconName: defaultSystemIcon(for: "Здоровье"),
-                note: "Обязательная карта"
-            ),
-            StartSystemCardDescriptor(
-                categoryType: .wants,
-                name: "Шопинг",
-                iconName: defaultSystemIcon(for: "Шопинг"),
-                note: "Создается всегда"
-            ),
-            StartSystemCardDescriptor(
-                categoryType: .wants,
-                name: "Хобби",
-                iconName: defaultSystemIcon(for: "Хобби"),
-                note: "Создается всегда"
-            ),
-            StartSystemCardDescriptor(
-                categoryType: .wants,
-                name: "Развлечения",
-                iconName: defaultSystemIcon(for: "Развлечения"),
-                note: "Создается всегда"
-            ),
-            StartSystemCardDescriptor(
-                categoryType: .savings,
-                name: "Подушка",
-                iconName: defaultSystemIcon(for: "Подушка"),
-                note: "Цель 6 месяцев"
-            )
-        ]
-
-        if childrenCount > 0 {
-            cards.append(
-                StartSystemCardDescriptor(
-                    categoryType: .essentials,
-                    name: "Дети",
-                    iconName: defaultSystemIcon(for: "Дети"),
-                    note: "Все детские расходы, кроме питания и здоровья"
-                )
-            )
-        }
-
-        if carsCount > 0 {
-            cards.append(
-                StartSystemCardDescriptor(
-                    categoryType: .essentials,
-                    name: "Транспорт",
-                    iconName: defaultSystemIcon(for: "Транспорт"),
-                    note: "Создается по числу авто"
-                )
-            )
-        }
-
-        if capital < 0 {
-            cards.append(
-                StartSystemCardDescriptor(
-                    categoryType: .savings,
-                    name: "Долг",
-                    iconName: defaultSystemIcon(for: "Долг"),
-                    note: "Создается при отрицательном капитале"
-                )
-            )
-        }
-
-        if hasCredit {
-            cards.append(
-                StartSystemCardDescriptor(
-                    categoryType: .savings,
-                    name: "Кредит",
-                    iconName: defaultSystemIcon(for: "Кредит"),
-                    note: "Создается при наличии ежемесячного платежа"
-                )
-            )
-        }
-
-        return ExpenseCategoryType.allCases.flatMap { categoryType in
-            cards.filter { $0.categoryType == categoryType }
-        }
+    func onboardingCardDescriptors(for input: StartOnboardingInput) -> [StartSystemCardDescriptor] {
+        onboardingCardDescriptors(for: input, categoryBudgets: buildCategoryBudgets(for: input))
     }
 
     private func buildCategoryBudgets(for input: StartOnboardingInput) -> [StartCategoryBudget] {
@@ -205,83 +108,23 @@ struct StartOnboardingBuilder {
         categoryBudgets: [StartCategoryBudget]
     ) -> BudgetSettings {
         let budgetsByType = Dictionary(uniqueKeysWithValues: categoryBudgets.map { ($0.type, $0.monthlyAmount) })
-        let essentialsBudget = budgetsByType[.essentials, default: 0]
-        let wantsBudget = budgetsByType[.wants, default: 0]
-        let savingsBudget = budgetsByType[.savings, default: 0]
-
-        let housingPercentage = input.housingType == .rented ? 30.0 : 5.0
-        let foodPercentage = 10.0
-            + (Double(input.adultDependentsCount) * 5.0)
-            + (Double(input.childrenCount) * 4.0)
-        let healthPercentage = 5.0
-            + (Double(input.adultDependentsCount) * 2.0)
-            + (Double(input.childrenCount) * 3.0)
-        let childrenPercentage = input.childrenCount > 0 ? 10.0 : nil
-        let transportPercentage = input.carsCount > 0 ? 10.0 : nil
-        let debtPercentage = input.capital < 0 ? 50.0 : nil
-        let creditPercentage = input.hasCredit ? 10.0 : nil
-
-        let housingMin = roundToCents(input.housingCost * 1.10)
-        let foodMin = roundToCents(
-            (Double(input.adultsIncludingUserCount) * 9000.0)
-                + (Double(input.childrenCount) * 6000.0)
+        let activeDescriptorsByCategory = Dictionary(
+            grouping: onboardingCardDescriptors(for: input, categoryBudgets: categoryBudgets).filter(\.isActive),
+            by: \.categoryType
         )
-        let healthMin = roundToCents(
-            max(
-                essentialsBudget * (healthPercentage / 100.0),
-                Double(input.totalPeopleCount) * 500.0
-            )
-        )
-        let childrenMin = roundToCents(essentialsBudget * ((childrenPercentage ?? 0) / 100.0))
-        let transportMin = roundToCents(essentialsBudget * ((transportPercentage ?? 0) / 100.0))
-        let shoppingMin = roundToCents(wantsBudget * 0.05)
-        let hobbyMin = roundToCents(wantsBudget * 0.10)
-        let entertainmentMin = roundToCents(wantsBudget * 0.10)
-        let debtMin = roundToCents(max(savingsBudget * 0.50, abs(min(0, input.capital)) / 24.0))
-        let creditMin = roundToCents(max(input.creditMonthlyPayment, savingsBudget * 0.10))
 
-        let mandatoryLivingMonthly = housingMin + foodMin + healthMin + childrenMin + transportMin + debtMin + creditMin
-        let emergencyTarget = roundToCents(mandatoryLivingMonthly * 6.0)
-        let emergencyMin = roundToCents(max(0, emergencyTarget - input.positiveCapital) / 12.0)
-
-        var categories: [ExpenseCategory] = [
+        var categories = ExpenseCategoryType.allCases.map { categoryType in
             ExpenseCategory(
-                type: .essentials,
-                percentage: input.strategy.categoryPercentages[.essentials, default: 0],
-                subcategories: essentialsSubcategories(
-                    housingPercentage: housingPercentage,
-                    housingMin: housingMin,
-                    foodPercentage: foodPercentage,
-                    foodMin: foodMin,
-                    healthPercentage: healthPercentage,
-                    healthMin: healthMin,
-                    childrenPercentage: childrenPercentage,
-                    childrenMin: childrenMin,
-                    transportPercentage: transportPercentage,
-                    transportMin: transportMin
-                ) + buildCustomSubcategories(for: .essentials, input: input, categoryBudget: essentialsBudget)
-            ),
-            ExpenseCategory(
-                type: .wants,
-                percentage: input.strategy.categoryPercentages[.wants, default: 0],
-                subcategories: wantsSubcategories(
-                    shoppingMin: shoppingMin,
-                    hobbyMin: hobbyMin,
-                    entertainmentMin: entertainmentMin
-                ) + buildCustomSubcategories(for: .wants, input: input, categoryBudget: wantsBudget)
-            ),
-            ExpenseCategory(
-                type: .savings,
-                percentage: input.strategy.categoryPercentages[.savings, default: 0],
-                subcategories: savingsSubcategories(
-                    emergencyMin: emergencyMin,
-                    debtPercentage: debtPercentage,
-                    debtMin: debtMin,
-                    creditPercentage: creditPercentage,
-                    creditMin: creditMin
-                ) + buildCustomSubcategories(for: .savings, input: input, categoryBudget: savingsBudget)
+                type: categoryType,
+                percentage: input.strategy.categoryPercentages[categoryType, default: 0],
+                subcategories: activeDescriptorsByCategory[categoryType, default: []].map(subcategory(from:))
+                    + buildCustomSubcategories(
+                        for: categoryType,
+                        input: input,
+                        categoryBudget: budgetsByType[categoryType, default: 0]
+                    )
             )
-        ]
+        }
 
         categories = categories.map { category in
             var copy = category
@@ -296,6 +139,315 @@ struct StartOnboardingBuilder {
         return BudgetSettings(categories: categories, currencyCode: "UAH")
     }
 
+    private func onboardingCardDescriptors(
+        for input: StartOnboardingInput,
+        categoryBudgets: [StartCategoryBudget]
+    ) -> [StartSystemCardDescriptor] {
+        let budgetsByType = Dictionary(uniqueKeysWithValues: categoryBudgets.map { ($0.type, $0.monthlyAmount) })
+        let essentialsBudget = budgetsByType[.essentials, default: 0]
+        let savingsBudget = budgetsByType[.savings, default: 0]
+        let selectedRecommendations = Set(input.selectedRecommendationKeys)
+
+        let housingPercentage = input.housingType == .rented ? 25.0 : 10.0
+        let foodPercentage = 20.0
+            + (Double(input.adultDependentsCount) * 4.0)
+            + (Double(input.childrenCount) * 2.0)
+        let healthPercentage = 3.0
+            + (Double(input.adultDependentsCount) * 0.5)
+            + (Double(input.childrenCount) * 1.0)
+            + (Double(input.elderlyDependentsCount) * 5.0)
+        let hygienePercentage = 5.0
+        let childrenPercentage = input.childrenCount > 0 ? 10.0 : nil
+        let animalsPercentage = input.petsCount > 0 ? 3.0 : nil
+        let transportPercentage = input.hasCar ? 10.0 : 5.0
+        let hasDebt = input.capital < 0
+
+        let housingMin = roundToCents(input.housingCost * 1.10)
+        let foodMin = roundToCents(
+            8000.0 * (1.0 + (Double(input.adultDependentsCount) * 0.8))
+                + (Double(input.childrenCount) * 5000.0)
+        )
+        let healthMin = roundToCents(
+            max(
+                essentialsBudget * (healthPercentage / 100.0),
+                Double(input.totalPeopleCount) * 500.0
+            )
+        )
+        let hygieneMin = 500.0
+        let childrenMin = roundToCents(essentialsBudget * ((childrenPercentage ?? 0) / 100.0))
+        let animalsMin = roundToCents(Double(input.petsCount) * 1000.0)
+        let transportMin = input.hasCar ? 2000.0 : 1000.0
+        let creditMin = roundToCents(max(input.creditMonthlyPayment, savingsBudget * 0.10))
+
+        let mandatoryLivingMonthly = housingMin + foodMin + healthMin + hygieneMin + childrenMin + animalsMin + transportMin + creditMin
+        let emergencyTarget = roundToCents(mandatoryLivingMonthly * 6.0)
+        let emergencyMaxLimit = roundToCents(mandatoryLivingMonthly * 12.0)
+
+        var cards: [StartSystemCardDescriptor] = [
+            StartSystemCardDescriptor(
+                categoryType: .essentials,
+                systemKey: .housing,
+                name: SystemSubcategoryKey.housing.defaultName,
+                iconName: Self.defaultSystemIcon(for: .housing),
+                note: input.housingType == .rented ? "Аренда, коммунальные, ремонт, клининг..." : "Коммунальные, ремонт, клининг...",
+                basePercentage: housingPercentage,
+                minLimit: housingMin,
+                maxLimit: nil,
+                priority: housingPercentage > 10.0001 ? .high : .medium,
+                isRecommended: false,
+                isActive: true
+            ),
+            StartSystemCardDescriptor(
+                categoryType: .essentials,
+                systemKey: .food,
+                name: SystemSubcategoryKey.food.defaultName,
+                iconName: Self.defaultSystemIcon(for: .food),
+                note: "Продукты, кафе, столовые, фастфуд...",
+                basePercentage: foodPercentage,
+                minLimit: foodMin,
+                maxLimit: nil,
+                priority: housingPercentage > 10.0001 ? .medium : .high,
+                isRecommended: false,
+                isActive: true
+            ),
+            StartSystemCardDescriptor(
+                categoryType: .essentials,
+                systemKey: .health,
+                name: SystemSubcategoryKey.health.defaultName,
+                iconName: Self.defaultSystemIcon(for: .health),
+                note: "Лекарства, витамины, бады, больницы, стоматология, пансионаты, процедуры",
+                basePercentage: healthPercentage,
+                minLimit: healthMin,
+                maxLimit: nil,
+                priority: .medium,
+                isRecommended: false,
+                isActive: true
+            ),
+            StartSystemCardDescriptor(
+                categoryType: .essentials,
+                systemKey: .hygiene,
+                name: SystemSubcategoryKey.hygiene.defaultName,
+                iconName: Self.defaultSystemIcon(for: .hygiene),
+                note: "Парикмахерские, уход за телом и зубами...",
+                basePercentage: hygienePercentage,
+                minLimit: hygieneMin,
+                maxLimit: nil,
+                priority: .medium,
+                isRecommended: false,
+                isActive: true
+            ),
+            StartSystemCardDescriptor(
+                categoryType: .essentials,
+                systemKey: .transport,
+                name: SystemSubcategoryKey.transport.defaultName,
+                iconName: input.hasCar ? "car.fill" : "tram.fill",
+                note: input.hasCar ? "Бензин, ТО, ремонт, обслуживание, тюнинг" : "Общественный транспорт, такси",
+                basePercentage: transportPercentage,
+                minLimit: transportMin,
+                maxLimit: nil,
+                priority: .medium,
+                isRecommended: false,
+                isActive: true
+            ),
+            StartSystemCardDescriptor(
+                categoryType: .wants,
+                systemKey: .shopping,
+                name: SystemSubcategoryKey.shopping.defaultName,
+                iconName: Self.defaultSystemIcon(for: .shopping),
+                note: "Торговые центы, одежда, любой вид покупок",
+                basePercentage: 15,
+                minLimit: 500,
+                maxLimit: nil,
+                priority: .high,
+                isRecommended: false,
+                isActive: true
+            ),
+            StartSystemCardDescriptor(
+                categoryType: .wants,
+                systemKey: .entertainment,
+                name: SystemSubcategoryKey.entertainment.defaultName,
+                iconName: Self.defaultSystemIcon(for: .entertainment),
+                note: "Театры, прогулки, концерты, клубы...",
+                basePercentage: 10,
+                minLimit: 1000,
+                maxLimit: nil,
+                priority: .medium,
+                isRecommended: false,
+                isActive: true
+            ),
+            StartSystemCardDescriptor(
+                categoryType: .savings,
+                systemKey: .emergencyFund,
+                name: SystemSubcategoryKey.emergencyFund.defaultName,
+                iconName: Self.defaultSystemIcon(for: .emergencyFund),
+                note: "Финансовая продушка на 6 месяцев проживания",
+                basePercentage: 50,
+                minLimit: emergencyTarget,
+                maxLimit: emergencyMaxLimit,
+                priority: hasDebt ? .medium : .high,
+                isRecommended: false,
+                isActive: true
+            ),
+            recommendationDescriptor(
+                categoryType: .wants,
+                systemKey: .hobby,
+                note: "Затраты на любимое дело",
+                basePercentage: 5,
+                minLimit: 1000,
+                selectedRecommendations: selectedRecommendations
+            ),
+            recommendationDescriptor(
+                categoryType: .wants,
+                systemKey: .travel,
+                note: "Поездки, билеты, отпуск",
+                basePercentage: 10,
+                minLimit: 1000,
+                selectedRecommendations: selectedRecommendations
+            ),
+            recommendationDescriptor(
+                categoryType: .wants,
+                systemKey: .restaurants,
+                note: "Кафе, рестораны, доставки и встречи вне дома",
+                basePercentage: 20,
+                minLimit: 2000,
+                selectedRecommendations: selectedRecommendations
+            ),
+            recommendationDescriptor(
+                categoryType: .wants,
+                systemKey: .gifts,
+                note: "Праздники, сюрпризы, внимание близким",
+                basePercentage: 5,
+                minLimit: 500,
+                selectedRecommendations: selectedRecommendations
+            ),
+            recommendationDescriptor(
+                categoryType: .wants,
+                systemKey: .sport,
+                note: "Зал, секции, инвентарь",
+                basePercentage: 20,
+                minLimit: 500,
+                selectedRecommendations: selectedRecommendations
+            ),
+            recommendationDescriptor(
+                categoryType: .wants,
+                systemKey: .beauty,
+                note: "Косметика, уход, салоны и процедуры",
+                basePercentage: 5,
+                minLimit: 500,
+                selectedRecommendations: selectedRecommendations
+            ),
+            recommendationDescriptor(
+                categoryType: .wants,
+                systemKey: .subscriptions,
+                note: "Сервисы, приложения и регулярные подписки",
+                basePercentage: 5,
+                minLimit: 200,
+                selectedRecommendations: selectedRecommendations
+            ),
+            recommendationDescriptor(
+                categoryType: .savings,
+                systemKey: .investments,
+                note: "Инвестиционные цели и долгосрочный рост капитала",
+                basePercentage: 10,
+                minLimit: 5000,
+                selectedRecommendations: selectedRecommendations
+            ),
+            recommendationDescriptor(
+                categoryType: .savings,
+                systemKey: .business,
+                note: "Запуск и развитие собственного дела",
+                basePercentage: 20,
+                minLimit: 10000,
+                selectedRecommendations: selectedRecommendations
+            ),
+            recommendationDescriptor(
+                categoryType: .savings,
+                systemKey: .currency,
+                note: "Валютная подушка и защита от курсовых рисков",
+                basePercentage: 20,
+                minLimit: 2000,
+                selectedRecommendations: selectedRecommendations
+            )
+        ]
+
+        if let childrenPercentage {
+            cards.append(
+                StartSystemCardDescriptor(
+                    categoryType: .essentials,
+                    systemKey: .children,
+                    name: SystemSubcategoryKey.children.defaultName,
+                    iconName: Self.defaultSystemIcon(for: .children),
+                    note: "Все детские расходы, кроме питания и здоровья",
+                    basePercentage: childrenPercentage,
+                    minLimit: childrenMin,
+                    maxLimit: nil,
+                    priority: .medium,
+                    isRecommended: false,
+                    isActive: true
+                )
+            )
+        }
+
+        if let animalsPercentage {
+            cards.append(
+                StartSystemCardDescriptor(
+                    categoryType: .essentials,
+                    systemKey: .animals,
+                    name: SystemSubcategoryKey.animals.defaultName,
+                    iconName: Self.defaultSystemIcon(for: .animals),
+                    note: "Корм, уход, ветврач",
+                    basePercentage: animalsPercentage,
+                    minLimit: animalsMin,
+                    maxLimit: nil,
+                    priority: .medium,
+                    isRecommended: false,
+                    isActive: true
+                )
+            )
+        }
+
+        if hasDebt {
+            let debtAmount = roundToCents(abs(min(0, input.capital)))
+            cards.append(
+                StartSystemCardDescriptor(
+                    categoryType: .savings,
+                    systemKey: .debt,
+                    name: SystemSubcategoryKey.debt.defaultName,
+                    iconName: Self.defaultSystemIcon(for: .debt),
+                    note: "Создается при отрицательном капитале",
+                    basePercentage: 100,
+                    minLimit: debtAmount,
+                    maxLimit: debtAmount,
+                    priority: .high,
+                    isRecommended: false,
+                    isActive: true
+                )
+            )
+        }
+
+        if input.hasCredit {
+            cards.append(
+                StartSystemCardDescriptor(
+                    categoryType: .savings,
+                    systemKey: .credit,
+                    name: SystemSubcategoryKey.credit.defaultName,
+                    iconName: Self.defaultSystemIcon(for: .credit),
+                    note: "Создается при наличии ежемесячного платежа",
+                    basePercentage: 10,
+                    minLimit: creditMin,
+                    maxLimit: nil,
+                    priority: .medium,
+                    isRecommended: false,
+                    isActive: true
+                )
+            )
+        }
+
+        return ExpenseCategoryType.allCases.flatMap { categoryType in
+            cards.filter { $0.categoryType == categoryType }
+        }
+    }
+
     private func essentialsSubcategories(
         housingPercentage: Double,
         housingMin: Double,
@@ -303,36 +455,49 @@ struct StartOnboardingBuilder {
         foodMin: Double,
         healthPercentage: Double,
         healthMin: Double,
+        hygienePercentage: Double,
+        hygieneMin: Double,
         childrenPercentage: Double?,
         childrenMin: Double,
-        transportPercentage: Double?,
+        animalsPercentage: Double?,
+        animalsMin: Double,
+        transportPercentage: Double,
         transportMin: Double
     ) -> [Subcategory] {
+        let housingPriority: SubcategoryPriorityLevel = housingPercentage > 10.0001 ? .high : .medium
+        let foodPriority: SubcategoryPriorityLevel = housingPercentage > 10.0001 ? .medium : .high
+
         var cards: [Subcategory] = [
             systemSubcategory(
-                name: "Жилье",
+                systemKey: .housing,
                 percentage: housingPercentage,
                 minLimit: housingMin,
-                priority: .high
+                priority: housingPriority
             ),
             systemSubcategory(
-                name: "Питание",
+                systemKey: .food,
                 percentage: foodPercentage,
                 minLimit: foodMin,
-                priority: .high
+                priority: foodPriority
             ),
             systemSubcategory(
-                name: "Здоровье",
+                systemKey: .health,
                 percentage: healthPercentage,
                 minLimit: healthMin,
-                priority: .high
+                priority: .medium
+            ),
+            systemSubcategory(
+                systemKey: .hygiene,
+                percentage: hygienePercentage,
+                minLimit: hygieneMin,
+                priority: .medium
             )
         ]
 
         if let childrenPercentage {
             cards.append(
                 systemSubcategory(
-                    name: "Дети",
+                    systemKey: .children,
                     percentage: childrenPercentage,
                     minLimit: childrenMin,
                     priority: .medium
@@ -340,16 +505,26 @@ struct StartOnboardingBuilder {
             )
         }
 
-        if let transportPercentage {
+        if let animalsPercentage {
             cards.append(
                 systemSubcategory(
-                    name: "Транспорт",
-                    percentage: transportPercentage,
-                    minLimit: transportMin,
+                    systemKey: .animals,
+                    percentage: animalsPercentage,
+                    minLimit: animalsMin,
                     priority: .medium
                 )
             )
         }
+
+        cards.append(
+            systemSubcategory(
+                systemKey: .transport,
+                percentage: transportPercentage,
+                minLimit: transportMin,
+                iconName: transportPercentage >= 10 ? "car.fill" : "tram.fill",
+                priority: .medium
+            )
+        )
 
         return cards
     }
@@ -357,32 +532,54 @@ struct StartOnboardingBuilder {
     private func wantsSubcategories(
         shoppingMin: Double,
         hobbyMin: Double,
-        entertainmentMin: Double
+        entertainmentMin: Double,
+        travelMin: Double,
+        giftsMin: Double,
+        sportMin: Double
     ) -> [Subcategory] {
         [
             systemSubcategory(
-                name: "Шопинг",
-                percentage: 5,
+                systemKey: .shopping,
+                percentage: 30,
                 minLimit: shoppingMin,
-                priority: .low
+                priority: .high
             ),
             systemSubcategory(
-                name: "Хобби",
-                percentage: 10,
+                systemKey: .hobby,
+                percentage: 20,
                 minLimit: hobbyMin,
-                priority: .low
+                priority: .medium
             ),
             systemSubcategory(
-                name: "Развлечения",
-                percentage: 10,
+                systemKey: .entertainment,
+                percentage: 20,
                 minLimit: entertainmentMin,
-                priority: .low
+                priority: .medium
+            ),
+            systemSubcategory(
+                systemKey: .travel,
+                percentage: 10,
+                minLimit: travelMin,
+                priority: .medium
+            ),
+            systemSubcategory(
+                systemKey: .gifts,
+                percentage: 5,
+                minLimit: giftsMin,
+                priority: .medium
+            ),
+            systemSubcategory(
+                systemKey: .sport,
+                percentage: 5,
+                minLimit: sportMin,
+                priority: .medium
             )
         ]
     }
 
     private func savingsSubcategories(
         emergencyMin: Double,
+        emergencyMaxLimit: Double,
         debtPercentage: Double?,
         debtMin: Double,
         creditPercentage: Double?,
@@ -390,19 +587,21 @@ struct StartOnboardingBuilder {
     ) -> [Subcategory] {
         var cards: [Subcategory] = [
             systemSubcategory(
-                name: "Подушка",
-                percentage: 25,
+                systemKey: .emergencyFund,
+                percentage: 50,
                 minLimit: emergencyMin,
-                priority: .medium
+                maxLimit: emergencyMaxLimit,
+                priority: debtPercentage == nil ? .high : .medium
             )
         ]
 
         if let debtPercentage {
             cards.append(
                 systemSubcategory(
-                    name: "Долг",
+                    systemKey: .debt,
                     percentage: debtPercentage,
                     minLimit: debtMin,
+                    maxLimit: debtMin,
                     priority: .high
                 )
             )
@@ -411,10 +610,10 @@ struct StartOnboardingBuilder {
         if let creditPercentage {
             cards.append(
                 systemSubcategory(
-                    name: "Кредит",
+                    systemKey: .credit,
                     percentage: creditPercentage,
                     minLimit: creditMin,
-                    priority: .high
+                    priority: .medium
                 )
             )
         }
@@ -455,35 +654,76 @@ struct StartOnboardingBuilder {
     }
 
     private func systemSubcategory(
-        name: String,
+        systemKey: SystemSubcategoryKey,
         percentage: Double,
         minLimit: Double,
+        maxLimit: Double? = nil,
+        iconName: String? = nil,
         priority: SubcategoryPriorityLevel
     ) -> Subcategory {
         Subcategory(
-            name: name,
+            name: systemKey.defaultName,
             isSystem: true,
-            iconName: Self.defaultSystemIcon(for: name),
+            systemKey: systemKey,
+            iconName: iconName ?? Self.defaultSystemIcon(for: systemKey),
             percentage: percentage,
             fixedMinimumPercentage: nil,
             minLimit: max(0, minLimit),
-            maxLimit: nil,
+            maxLimit: maxLimit.map { max(0, $0) },
             priority: priority.rawValue,
             spentAmount: 0
+        )
+    }
+
+    private func subcategory(from descriptor: StartSystemCardDescriptor) -> Subcategory {
+        systemSubcategory(
+            systemKey: descriptor.systemKey,
+            percentage: descriptor.basePercentage,
+            minLimit: descriptor.minLimit,
+            maxLimit: descriptor.maxLimit,
+            iconName: descriptor.iconName,
+            priority: descriptor.priority
+        )
+    }
+
+    private func recommendationDescriptor(
+        categoryType: ExpenseCategoryType,
+        systemKey: SystemSubcategoryKey,
+        note: String,
+        basePercentage: Double,
+        minLimit: Double,
+        selectedRecommendations: Set<SystemSubcategoryKey>
+    ) -> StartSystemCardDescriptor {
+        StartSystemCardDescriptor(
+            categoryType: categoryType,
+            systemKey: systemKey,
+            name: systemKey.defaultName,
+            iconName: Self.defaultSystemIcon(for: systemKey),
+            note: note,
+            basePercentage: basePercentage,
+            minLimit: minLimit,
+            maxLimit: nil,
+            priority: .medium,
+            isRecommended: true,
+            isActive: selectedRecommendations.contains(systemKey)
         )
     }
 
     private func computeMandatoryLivingMonthly(from settings: BudgetSettings) -> Double {
         settings.categories
             .flatMap(\.subcategories)
-            .filter { mandatoryLivingCardNames.contains($0.name) }
+            .filter { subcategory in
+                guard let systemKey = subcategory.systemKey else { return false }
+                return mandatoryLivingSystemKeys.contains(systemKey)
+            }
             .reduce(0) { $0 + max(0, $1.minLimit ?? 0) }
     }
 
     private func computeMonthlyMinimumExcludingEmergency(from settings: BudgetSettings) -> Double {
         settings.categories.reduce(0.0) { partialResult, category in
             partialResult + category.subcategories.reduce(0.0) { subTotal, subcategory in
-                if category.type == .savings && subcategory.name == "Подушка" {
+                if category.type == .savings
+                    && (subcategory.systemKey == .emergencyFund || subcategory.systemKey == .debt) {
                     return subTotal
                 }
                 return subTotal + max(0, subcategory.minLimit ?? 0)
@@ -501,7 +741,12 @@ struct StartOnboardingBuilder {
         let budgetsByType = Dictionary(uniqueKeysWithValues: categoryBudgets.map { ($0.type, $0.monthlyAmount) })
 
         for category in settings.categories {
-            let minimumSum = category.subcategories.reduce(0.0) { $0 + max(0, $1.minLimit ?? 0) }
+            let minimumSum = category.subcategories.reduce(0.0) { partialResult, subcategory in
+                if category.type == .savings && subcategory.systemKey == .emergencyFund {
+                    return partialResult
+                }
+                return partialResult + max(0, subcategory.minLimit ?? 0)
+            }
             let categoryBudget = budgetsByType[category.type, default: 0]
             if minimumSum > categoryBudget + 0.01 {
                 warnings.append("Минимумы категории «\(category.type.title)» выше ее месячного бюджета. Разница будет покрываться из свободного капитала.")
@@ -543,6 +788,7 @@ struct StartOnboardingBuilder {
                     id: subcategory.id,
                     name: subcategory.name,
                     isSystem: subcategory.isSystem,
+                    systemKey: subcategory.systemKey,
                     iconName: subcategory.iconName,
                     basePercentage: subcategory.percentage,
                     fixedMinimumPercentage: subcategory.fixedMinimumPercentage,
@@ -553,7 +799,12 @@ struct StartOnboardingBuilder {
                     allocatedAmount: roundToCents(allocated),
                     spentAmount: roundToCents(subcategory.spentAmount),
                     remainingAmount: roundToCents(remaining),
-                    deficitAmount: roundToCents(deficit)
+                    deficitAmount: roundToCents(deficit),
+                    monthlyIncomeAmount: roundToCents(allocated),
+                    monthlyIncomeDistributionAmount: roundToCents(allocated),
+                    monthlyOtherIncomingAmount: 0,
+                    monthlyExpenseAmount: roundToCents(subcategory.spentAmount),
+                    monthlyOtherOutgoingAmount: 0
                 )
             }
 
@@ -597,11 +848,11 @@ struct StartOnboardingBuilder {
         (value * 100).rounded() / 100
     }
 
-    private static func defaultSystemIcon(for name: String) -> String {
-        SubcategoryIconCatalog.defaultSystemIcon(for: name, isSystem: true)
+    private static func defaultSystemIcon(for systemKey: SystemSubcategoryKey) -> String {
+        SubcategoryIconCatalog.defaultSystemIcon(for: systemKey, isSystem: true)
     }
 
-    private var mandatoryLivingCardNames: Set<String> {
-        ["Жилье", "Питание", "Здоровье", "Дети", "Транспорт", "Долг", "Кредит"]
+    private var mandatoryLivingSystemKeys: Set<SystemSubcategoryKey> {
+        [.housing, .food, .health, .hygiene, .children, .animals, .transport, .credit]
     }
 }
