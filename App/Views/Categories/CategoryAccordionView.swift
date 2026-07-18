@@ -351,7 +351,6 @@ struct CategoryAccordionView: View {
         return !normalizedName.isEmpty
             && normalizedPercent > 0
             && normalizedPercent <= freePercent
-            && normalizedMinAmount > 0
             && (coverageRequirement?.canCover != false)
     }
 
@@ -608,15 +607,12 @@ struct CategoryAccordionView: View {
             .maxLimit
     }
 
-    private func minimumCommitment(for subcategory: SubcategoryAllocation, categoryAmount: Double) -> Double {
+    private func minimumCommitment(
+        for subcategory: SubcategoryAllocation,
+        categoryAmount _: Double
+    ) -> Double {
         let maxCap = maxCap(for: subcategory)
-        let minAmountTarget = min(max(0, subcategory.minLimit ?? 0), maxCap)
-        let basePercentTarget = min(categoryAmount * (max(0, subcategory.basePercentage) / 100.0), maxCap)
-
-        if minAmountTarget > 0 {
-            return minAmountTarget
-        }
-        return basePercentTarget
+        return min(max(0, subcategory.minLimit ?? 0), maxCap)
     }
 
     private func maxCap(for subcategory: SubcategoryAllocation) -> Double {

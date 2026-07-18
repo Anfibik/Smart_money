@@ -543,7 +543,6 @@ final class BudgetViewModel: ObservableObject {
         allocatedBySubcategoryID[subcategoryID] = max(0, allocated - normalizedAmount)
         bankBalance += normalizedAmount
         recordMonthlyOtherOutgoing(for: subcategoryID, amount: normalizedAmount)
-        topUpEmergencyReserveFromFreeCapital()
         appendHistoryEvent(
             BudgetHistoryEvent(
                 type: .transferToFreeCapital,
@@ -780,7 +779,7 @@ final class BudgetViewModel: ObservableObject {
             let normalizedPercentage = max(0, setup.percentage)
             var normalizedMinLimit = max(0, setup.minLimit)
             let normalizedMaxLimit = max(0, setup.maxLimit ?? 0)
-            guard normalizedPercentage > 0, normalizedMinLimit > 0 else { continue }
+            guard normalizedPercentage > 0 else { continue }
 
             if normalizedMaxLimit > 0, normalizedMinLimit > normalizedMaxLimit {
                 normalizedMinLimit = normalizedMaxLimit
@@ -789,7 +788,7 @@ final class BudgetViewModel: ObservableObject {
             var subcategory = settings.categories[categoryIndex].subcategories[subIndex]
             subcategory.percentage = normalizedPercentage
             subcategory.fixedMinimumPercentage = nil
-            subcategory.minLimit = normalizedMinLimit
+            subcategory.minLimit = normalizedMinLimit > 0 ? normalizedMinLimit : nil
             subcategory.maxLimit = normalizedMaxLimit > 0 ? normalizedMaxLimit : nil
             settings.categories[categoryIndex].subcategories[subIndex] = subcategory
             moveExcessAboveMaxToBank(categoryType: setup.categoryType, subcategoryID: subcategory.id)
@@ -829,15 +828,20 @@ final class BudgetViewModel: ObservableObject {
         let startingFreeCapital = configuration.input.positiveCapital
         if startingFreeCapital > 0 {
             bankBalance += startingFreeCapital
-            let allocationsBefore = allocatedBySubcategoryID
-            allocationEngine.resolveMinimumDeficitsFromBank(
+        }
+
+        if configuration.coversDeficitsFromFreeCapital {
+            let allocationsBeforeCoverage = allocatedBySubcategoryID
+            allocationEngine.coverOnboardingDeficitsFromBank(
                 settings: settings,
                 allocatedBySubcategoryID: &allocatedBySubcategoryID,
                 bankBalance: &bankBalance,
-                lastBankAutoDistributedBySubcategoryID: &lastBankAutoDistributedBySubcategoryID,
-                trackAutoDistribution: true
+                distributedBySubcategoryID: &lastBankAutoDistributedBySubcategoryID
             )
-            recordMonthlyOtherIncomingChanges(from: allocationsBefore, to: allocatedBySubcategoryID)
+            recordMonthlyOtherIncomingChanges(
+                from: allocationsBeforeCoverage,
+                to: allocatedBySubcategoryID
+            )
         }
 
         recalculate()
@@ -853,7 +857,6 @@ final class BudgetViewModel: ObservableObject {
         let allocated = allocatedBySubcategoryID[subcategoryID, default: 0]
         let remaining = max(0, allocated - subcategory.spentAmount)
         bankBalance += remaining
-        topUpEmergencyReserveFromFreeCapital()
 
         settings.categories[categoryIndex].subcategories.remove(at: subIndex)
         allocatedBySubcategoryID.removeValue(forKey: subcategoryID)
@@ -1016,7 +1019,6 @@ final class BudgetViewModel: ObservableObject {
 
         let normalizedMaxLimit = max(0, maxLimit)
         var normalizedMinLimit = max(0, minLimit)
-        guard normalizedMinLimit > 0 else { return false }
         if normalizedMaxLimit > 0, normalizedMinLimit > normalizedMaxLimit {
             normalizedMinLimit = normalizedMaxLimit
         }
@@ -1414,7 +1416,6 @@ final class BudgetViewModel: ObservableObject {
             lastBankAutoDistributedBySubcategoryID: &lastBankAutoDistributedBySubcategoryID
         )
         recordMonthlyIncomeDistributionChanges(from: allocationsBefore, to: allocatedBySubcategoryID)
-        topUpEmergencyReserveFromFreeCapital()
     }
 
     private func buildDistribution() -> BudgetDistribution {
@@ -1549,19 +1550,12 @@ final class BudgetViewModel: ObservableObject {
         )
     }
 
-    private func minimumCommitment(for subcategory: Subcategory, categoryAmount: Double) -> Double {
+    private func minimumCommitment(
+        for subcategory: Subcategory,
+        categoryAmount _: Double
+    ) -> Double {
         let cap = maxCap(for: subcategory)
-
-        let minLimitTarget = min(max(0, subcategory.minLimit ?? 0), cap)
-        if minLimitTarget > 0 {
-            return minLimitTarget
-        }
-
-        let basePercentTarget = min(
-            categoryAmount * (max(0, subcategory.percentage) / 100.0),
-            cap
-        )
-        return max(0, basePercentTarget)
+        return min(max(0, subcategory.minLimit ?? 0), cap)
     }
 
     private func minimumFloorForRebalance(for subcategory: Subcategory) -> Double {
@@ -1576,19 +1570,6 @@ final class BudgetViewModel: ObservableObject {
             allocatedBySubcategoryID: &allocatedBySubcategoryID,
             bankBalance: &bankBalance
         )
-        topUpEmergencyReserveFromFreeCapital()
-    }
-
-    private func topUpEmergencyReserveFromFreeCapital() {
-        let allocationsBefore = allocatedBySubcategoryID
-        allocationEngine.resolveEmergencyReserveMinimumFromBank(
-            settings: settings,
-            allocatedBySubcategoryID: &allocatedBySubcategoryID,
-            bankBalance: &bankBalance,
-            lastBankAutoDistributedBySubcategoryID: &lastBankAutoDistributedBySubcategoryID,
-            trackAutoDistribution: true
-        )
-        recordMonthlyOtherIncomingChanges(from: allocationsBefore, to: allocatedBySubcategoryID)
     }
 
     private func maxCap(for subcategory: Subcategory) -> Double {

@@ -110,7 +110,7 @@ struct BudgetSettings: Codable, Hashable {
                     systemKey: .travel,
                     iconName: SystemSubcategoryKey.travel.defaultIconName,
                     percentage: 10,
-                    minLimit: 1000,
+                    minLimit: 0,
                     priority: 2
                 ),
                 Subcategory(
@@ -119,7 +119,7 @@ struct BudgetSettings: Codable, Hashable {
                     systemKey: .gifts,
                     iconName: SystemSubcategoryKey.gifts.defaultIconName,
                     percentage: 5,
-                    minLimit: 200,
+                    minLimit: 0,
                     priority: 2
                 ),
                 Subcategory(
@@ -128,7 +128,7 @@ struct BudgetSettings: Codable, Hashable {
                     systemKey: .sport,
                     iconName: SystemSubcategoryKey.sport.defaultIconName,
                     percentage: 5,
-                    minLimit: 500,
+                    minLimit: 0,
                     priority: 2
                 ),
             ]

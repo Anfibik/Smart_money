@@ -3,7 +3,10 @@ import Foundation
 struct StartOnboardingBuilder {
     private let allocationEngine = BudgetAllocationEngine()
 
-    func buildPreview(input: StartOnboardingInput) -> StartOnboardingPreview {
+    func buildPreview(
+        input: StartOnboardingInput,
+        coverDeficitsFromFreeCapital: Bool = false
+    ) -> StartOnboardingPreview {
         let categoryBudgets = buildCategoryBudgets(for: input)
         let settings = buildSettings(for: input, categoryBudgets: categoryBudgets)
 
@@ -33,15 +36,7 @@ struct StartOnboardingBuilder {
             )
         }
 
-        allocationEngine.resolveMinimumDeficitsFromBank(
-            settings: settings,
-            allocatedBySubcategoryID: &allocatedBySubcategoryID,
-            bankBalance: &bankBalance,
-            lastBankAutoDistributedBySubcategoryID: &lastBankAutoDistributedBySubcategoryID,
-            trackAutoDistribution: true
-        )
-
-        let distribution = buildDistribution(
+        let distributionBeforeCoverage = buildDistribution(
             input: input,
             settings: settings,
             allocatedBySubcategoryID: allocatedBySubcategoryID,
@@ -49,12 +44,41 @@ struct StartOnboardingBuilder {
             lastBankAutoDistributedBySubcategoryID: lastBankAutoDistributedBySubcategoryID,
             bankBalance: bankBalance
         )
+        let deficitBeforeCoverage = distributionBeforeCoverage.categoryAllocations.reduce(0) {
+            $0 + $1.deficitAmount
+        }
+        let shouldCoverDeficits = coverDeficitsFromFreeCapital
+            && bankBalance > 0.0001
+            && deficitBeforeCoverage > 0.01
+        let freeCapitalBeforeCoverage = bankBalance
+
+        if shouldCoverDeficits {
+            allocationEngine.coverOnboardingDeficitsFromBank(
+                settings: settings,
+                allocatedBySubcategoryID: &allocatedBySubcategoryID,
+                bankBalance: &bankBalance,
+                distributedBySubcategoryID: &lastBankAutoDistributedBySubcategoryID
+            )
+        }
+
+        let distribution = shouldCoverDeficits
+            ? buildDistribution(
+                input: input,
+                settings: settings,
+                allocatedBySubcategoryID: allocatedBySubcategoryID,
+                lastIncomeToBankByCategoryID: lastIncomeToBankByCategoryID,
+                lastBankAutoDistributedBySubcategoryID: lastBankAutoDistributedBySubcategoryID,
+                bankBalance: bankBalance
+            )
+            : distributionBeforeCoverage
 
         let mandatoryLivingMonthly = roundToCents(computeMandatoryLivingMonthly(from: settings))
         let monthlyMinimumExcludingEmergency = roundToCents(computeMonthlyMinimumExcludingEmergency(from: settings))
         let emergencyTarget = roundToCents(mandatoryLivingMonthly * 6)
         let remainingFreeCapital = roundToCents(max(0, bankBalance))
-        let capitalAppliedToMinimums = roundToCents(max(0, input.positiveCapital - remainingFreeCapital))
+        let capitalAppliedToMinimums = roundToCents(
+            max(0, freeCapitalBeforeCoverage - bankBalance)
+        )
         let totalDeficit = roundToCents(distribution.categoryAllocations.reduce(0) { $0 + $1.deficitAmount })
         let coverageMonths: Double?
         if monthlyMinimumExcludingEmergency > 0 {
@@ -67,6 +91,7 @@ struct StartOnboardingBuilder {
             input: input,
             settings: settings,
             categoryBudgets: categoryBudgets,
+            coversDeficitsFromFreeCapital: shouldCoverDeficits,
             mandatoryLivingMonthly: mandatoryLivingMonthly,
             monthlyMinimumExcludingEmergency: monthlyMinimumExcludingEmergency,
             emergencyTarget: emergencyTarget,
@@ -82,8 +107,8 @@ struct StartOnboardingBuilder {
             warnings: buildWarnings(
                 input: input,
                 settings: settings,
-                categoryBudgets: categoryBudgets,
-                totalDeficit: totalDeficit
+                totalDeficit: totalDeficit,
+                remainingFreeCapital: remainingFreeCapital
             )
         )
     }
@@ -145,7 +170,6 @@ struct StartOnboardingBuilder {
     ) -> [StartSystemCardDescriptor] {
         let budgetsByType = Dictionary(uniqueKeysWithValues: categoryBudgets.map { ($0.type, $0.monthlyAmount) })
         let essentialsBudget = budgetsByType[.essentials, default: 0]
-        let savingsBudget = budgetsByType[.savings, default: 0]
         let selectedRecommendations = Set(input.selectedRecommendationKeys)
 
         let housingPercentage = input.housingType == .rented ? 25.0 : 10.0
@@ -162,7 +186,7 @@ struct StartOnboardingBuilder {
         let transportPercentage = input.hasCar ? 10.0 : 5.0
         let hasDebt = input.capital < 0
 
-        let housingMin = roundToCents(input.housingCost * 1.10)
+        let housingMin = roundToCents(input.housingCost)
         let foodMin = roundToCents(
             8000.0 * (1.0 + (Double(input.adultDependentsCount) * 0.8))
                 + (Double(input.childrenCount) * 5000.0)
@@ -177,11 +201,10 @@ struct StartOnboardingBuilder {
         let childrenMin = roundToCents(essentialsBudget * ((childrenPercentage ?? 0) / 100.0))
         let animalsMin = roundToCents(Double(input.petsCount) * 1000.0)
         let transportMin = input.hasCar ? 2000.0 : 1000.0
-        let creditMin = roundToCents(max(input.creditMonthlyPayment, savingsBudget * 0.10))
+        let creditMin = roundToCents(input.creditMonthlyPayment)
 
         let mandatoryLivingMonthly = housingMin + foodMin + healthMin + hygieneMin + childrenMin + animalsMin + transportMin + creditMin
         let emergencyTarget = roundToCents(mandatoryLivingMonthly * 6.0)
-        let emergencyMaxLimit = roundToCents(mandatoryLivingMonthly * 12.0)
 
         var cards: [StartSystemCardDescriptor] = [
             StartSystemCardDescriptor(
@@ -256,7 +279,7 @@ struct StartOnboardingBuilder {
                 iconName: Self.defaultSystemIcon(for: .shopping),
                 note: "Торговые центы, одежда, любой вид покупок",
                 basePercentage: 15,
-                minLimit: 500,
+                minLimit: 0,
                 maxLimit: nil,
                 priority: .high,
                 isRecommended: false,
@@ -269,7 +292,7 @@ struct StartOnboardingBuilder {
                 iconName: Self.defaultSystemIcon(for: .entertainment),
                 note: "Театры, прогулки, концерты, клубы...",
                 basePercentage: 10,
-                minLimit: 1000,
+                minLimit: 0,
                 maxLimit: nil,
                 priority: .medium,
                 isRecommended: false,
@@ -283,7 +306,7 @@ struct StartOnboardingBuilder {
                 note: "Финансовая продушка на 6 месяцев проживания",
                 basePercentage: 50,
                 minLimit: emergencyTarget,
-                maxLimit: emergencyMaxLimit,
+                maxLimit: emergencyTarget,
                 priority: hasDebt ? .medium : .high,
                 isRecommended: false,
                 isActive: true
@@ -293,7 +316,7 @@ struct StartOnboardingBuilder {
                 systemKey: .hobby,
                 note: "Затраты на любимое дело",
                 basePercentage: 5,
-                minLimit: 1000,
+                minLimit: 0,
                 selectedRecommendations: selectedRecommendations
             ),
             recommendationDescriptor(
@@ -301,7 +324,7 @@ struct StartOnboardingBuilder {
                 systemKey: .travel,
                 note: "Поездки, билеты, отпуск",
                 basePercentage: 10,
-                minLimit: 1000,
+                minLimit: 0,
                 selectedRecommendations: selectedRecommendations
             ),
             recommendationDescriptor(
@@ -309,7 +332,7 @@ struct StartOnboardingBuilder {
                 systemKey: .restaurants,
                 note: "Кафе, рестораны, доставки и встречи вне дома",
                 basePercentage: 20,
-                minLimit: 2000,
+                minLimit: 0,
                 selectedRecommendations: selectedRecommendations
             ),
             recommendationDescriptor(
@@ -317,7 +340,7 @@ struct StartOnboardingBuilder {
                 systemKey: .gifts,
                 note: "Праздники, сюрпризы, внимание близким",
                 basePercentage: 5,
-                minLimit: 500,
+                minLimit: 0,
                 selectedRecommendations: selectedRecommendations
             ),
             recommendationDescriptor(
@@ -325,7 +348,7 @@ struct StartOnboardingBuilder {
                 systemKey: .sport,
                 note: "Зал, секции, инвентарь",
                 basePercentage: 20,
-                minLimit: 500,
+                minLimit: 0,
                 selectedRecommendations: selectedRecommendations
             ),
             recommendationDescriptor(
@@ -333,7 +356,7 @@ struct StartOnboardingBuilder {
                 systemKey: .beauty,
                 note: "Косметика, уход, салоны и процедуры",
                 basePercentage: 5,
-                minLimit: 500,
+                minLimit: 0,
                 selectedRecommendations: selectedRecommendations
             ),
             recommendationDescriptor(
@@ -341,7 +364,7 @@ struct StartOnboardingBuilder {
                 systemKey: .subscriptions,
                 note: "Сервисы, приложения и регулярные подписки",
                 basePercentage: 5,
-                minLimit: 200,
+                minLimit: 0,
                 selectedRecommendations: selectedRecommendations
             ),
             recommendationDescriptor(
@@ -349,7 +372,7 @@ struct StartOnboardingBuilder {
                 systemKey: .investments,
                 note: "Инвестиционные цели и долгосрочный рост капитала",
                 basePercentage: 10,
-                minLimit: 5000,
+                minLimit: 0,
                 selectedRecommendations: selectedRecommendations
             ),
             recommendationDescriptor(
@@ -357,7 +380,7 @@ struct StartOnboardingBuilder {
                 systemKey: .business,
                 note: "Запуск и развитие собственного дела",
                 basePercentage: 20,
-                minLimit: 10000,
+                minLimit: 0,
                 selectedRecommendations: selectedRecommendations
             ),
             recommendationDescriptor(
@@ -365,7 +388,16 @@ struct StartOnboardingBuilder {
                 systemKey: .currency,
                 note: "Валютная подушка и защита от курсовых рисков",
                 basePercentage: 20,
-                minLimit: 2000,
+                minLimit: 0,
+                selectedRecommendations: selectedRecommendations
+            ),
+            recommendationDescriptor(
+                categoryType: .savings,
+                systemKey: .goal,
+                note: "Крупная цель: квартира, дом, автомобиль или обучение ребёнка",
+                basePercentage: 20,
+                minLimit: 0,
+                maxLimit: input.goalTargetAmount > 0 ? input.goalTargetAmount : nil,
                 selectedRecommendations: selectedRecommendations
             )
         ]
@@ -448,179 +480,6 @@ struct StartOnboardingBuilder {
         }
     }
 
-    private func essentialsSubcategories(
-        housingPercentage: Double,
-        housingMin: Double,
-        foodPercentage: Double,
-        foodMin: Double,
-        healthPercentage: Double,
-        healthMin: Double,
-        hygienePercentage: Double,
-        hygieneMin: Double,
-        childrenPercentage: Double?,
-        childrenMin: Double,
-        animalsPercentage: Double?,
-        animalsMin: Double,
-        transportPercentage: Double,
-        transportMin: Double
-    ) -> [Subcategory] {
-        let housingPriority: SubcategoryPriorityLevel = housingPercentage > 10.0001 ? .high : .medium
-        let foodPriority: SubcategoryPriorityLevel = housingPercentage > 10.0001 ? .medium : .high
-
-        var cards: [Subcategory] = [
-            systemSubcategory(
-                systemKey: .housing,
-                percentage: housingPercentage,
-                minLimit: housingMin,
-                priority: housingPriority
-            ),
-            systemSubcategory(
-                systemKey: .food,
-                percentage: foodPercentage,
-                minLimit: foodMin,
-                priority: foodPriority
-            ),
-            systemSubcategory(
-                systemKey: .health,
-                percentage: healthPercentage,
-                minLimit: healthMin,
-                priority: .medium
-            ),
-            systemSubcategory(
-                systemKey: .hygiene,
-                percentage: hygienePercentage,
-                minLimit: hygieneMin,
-                priority: .medium
-            )
-        ]
-
-        if let childrenPercentage {
-            cards.append(
-                systemSubcategory(
-                    systemKey: .children,
-                    percentage: childrenPercentage,
-                    minLimit: childrenMin,
-                    priority: .medium
-                )
-            )
-        }
-
-        if let animalsPercentage {
-            cards.append(
-                systemSubcategory(
-                    systemKey: .animals,
-                    percentage: animalsPercentage,
-                    minLimit: animalsMin,
-                    priority: .medium
-                )
-            )
-        }
-
-        cards.append(
-            systemSubcategory(
-                systemKey: .transport,
-                percentage: transportPercentage,
-                minLimit: transportMin,
-                iconName: transportPercentage >= 10 ? "car.fill" : "tram.fill",
-                priority: .medium
-            )
-        )
-
-        return cards
-    }
-
-    private func wantsSubcategories(
-        shoppingMin: Double,
-        hobbyMin: Double,
-        entertainmentMin: Double,
-        travelMin: Double,
-        giftsMin: Double,
-        sportMin: Double
-    ) -> [Subcategory] {
-        [
-            systemSubcategory(
-                systemKey: .shopping,
-                percentage: 30,
-                minLimit: shoppingMin,
-                priority: .high
-            ),
-            systemSubcategory(
-                systemKey: .hobby,
-                percentage: 20,
-                minLimit: hobbyMin,
-                priority: .medium
-            ),
-            systemSubcategory(
-                systemKey: .entertainment,
-                percentage: 20,
-                minLimit: entertainmentMin,
-                priority: .medium
-            ),
-            systemSubcategory(
-                systemKey: .travel,
-                percentage: 10,
-                minLimit: travelMin,
-                priority: .medium
-            ),
-            systemSubcategory(
-                systemKey: .gifts,
-                percentage: 5,
-                minLimit: giftsMin,
-                priority: .medium
-            ),
-            systemSubcategory(
-                systemKey: .sport,
-                percentage: 5,
-                minLimit: sportMin,
-                priority: .medium
-            )
-        ]
-    }
-
-    private func savingsSubcategories(
-        emergencyMin: Double,
-        emergencyMaxLimit: Double,
-        debtPercentage: Double?,
-        debtMin: Double,
-        creditPercentage: Double?,
-        creditMin: Double
-    ) -> [Subcategory] {
-        var cards: [Subcategory] = [
-            systemSubcategory(
-                systemKey: .emergencyFund,
-                percentage: 50,
-                minLimit: emergencyMin,
-                maxLimit: emergencyMaxLimit,
-                priority: debtPercentage == nil ? .high : .medium
-            )
-        ]
-
-        if let debtPercentage {
-            cards.append(
-                systemSubcategory(
-                    systemKey: .debt,
-                    percentage: debtPercentage,
-                    minLimit: debtMin,
-                    maxLimit: debtMin,
-                    priority: .high
-                )
-            )
-        }
-
-        if let creditPercentage {
-            cards.append(
-                systemSubcategory(
-                    systemKey: .credit,
-                    percentage: creditPercentage,
-                    minLimit: creditMin,
-                    priority: .medium
-                )
-            )
-        }
-
-        return cards
-    }
-
     private func buildCustomSubcategories(
         for categoryType: ExpenseCategoryType,
         input: StartOnboardingInput,
@@ -668,7 +527,7 @@ struct StartOnboardingBuilder {
             iconName: iconName ?? Self.defaultSystemIcon(for: systemKey),
             percentage: percentage,
             fixedMinimumPercentage: nil,
-            minLimit: max(0, minLimit),
+            minLimit: minLimit > 0 ? minLimit : nil,
             maxLimit: maxLimit.map { max(0, $0) },
             priority: priority.rawValue,
             spentAmount: 0
@@ -692,6 +551,7 @@ struct StartOnboardingBuilder {
         note: String,
         basePercentage: Double,
         minLimit: Double,
+        maxLimit: Double? = nil,
         selectedRecommendations: Set<SystemSubcategoryKey>
     ) -> StartSystemCardDescriptor {
         StartSystemCardDescriptor(
@@ -702,7 +562,7 @@ struct StartOnboardingBuilder {
             note: note,
             basePercentage: basePercentage,
             minLimit: minLimit,
-            maxLimit: nil,
+            maxLimit: maxLimit,
             priority: .medium,
             isRecommended: true,
             isActive: selectedRecommendations.contains(systemKey)
@@ -734,27 +594,28 @@ struct StartOnboardingBuilder {
     private func buildWarnings(
         input: StartOnboardingInput,
         settings: BudgetSettings,
-        categoryBudgets: [StartCategoryBudget],
-        totalDeficit: Double
+        totalDeficit: Double,
+        remainingFreeCapital: Double
     ) -> [String] {
         var warnings: [String] = []
-        let budgetsByType = Dictionary(uniqueKeysWithValues: categoryBudgets.map { ($0.type, $0.monthlyAmount) })
-
-        for category in settings.categories {
-            let minimumSum = category.subcategories.reduce(0.0) { partialResult, subcategory in
-                if category.type == .savings && subcategory.systemKey == .emergencyFund {
-                    return partialResult
-                }
-                return partialResult + max(0, subcategory.minLimit ?? 0)
-            }
-            let categoryBudget = budgetsByType[category.type, default: 0]
-            if minimumSum > categoryBudget + 0.01 {
-                warnings.append("Минимумы категории «\(category.type.title)» выше ее месячного бюджета. Разница будет покрываться из свободного капитала.")
-            }
+        let monthlyMinimum = roundToCents(computeMonthlyMinimumExcludingEmergency(from: settings))
+        if monthlyMinimum > input.monthlyIncome + 0.01 {
+            let shortfall = roundToCents(monthlyMinimum - input.monthlyIncome)
+            warnings.append(
+                "Доход ниже общей суммы обязательных минимумов на \(formattedWarningCurrency(shortfall)) в месяц."
+            )
         }
 
         if totalDeficit > 0.01 {
-            warnings.append("Текущего дохода и свободного капитала недостаточно, чтобы закрыть все обязательные минимумы сразу.")
+            if remainingFreeCapital > 0.01 {
+                warnings.append(
+                    "Не покрыты минимальные суммы на \(formattedWarningCurrency(totalDeficit)). Их можно покрыть из свободного капитала на итоговом экране."
+                )
+            } else {
+                warnings.append(
+                    "После распределения не покрыты минимальные суммы на \(formattedWarningCurrency(totalDeficit)). Скорректируйте стратегию, минимумы или доход."
+                )
+            }
         }
 
         if input.capital < 0 {
@@ -763,6 +624,20 @@ struct StartOnboardingBuilder {
 
         var seen = Set<String>()
         return warnings.filter { seen.insert($0).inserted }
+    }
+
+    private func formattedWarningCurrency(_ value: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "uk_UA")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        formatter.groupingSeparator = " "
+        formatter.decimalSeparator = ","
+
+        let amount = formatter.string(from: NSNumber(value: roundToCents(max(0, value))))
+            ?? String(format: "%.2f", max(0, value))
+        return "\(amount) ₴"
     }
 
     private func buildDistribution(

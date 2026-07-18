@@ -100,16 +100,16 @@ struct SubcategoryCardView: View {
                 valueColor: .green
             )
             detailMetricRow(
-                title: "→←",
-                value: currencyString(subcategory.monthlyOtherIncomingAmount),
-                symbolColor: paleGreen,
-                valueColor: paleGreen
-            )
-            detailMetricRow(
                 title: "-",
                 value: currencyString(subcategory.monthlyExpenseAmount),
                 symbolColor: .red,
                 valueColor: .red
+            )
+            detailMetricRow(
+                title: "→←",
+                value: currencyString(subcategory.monthlyOtherIncomingAmount),
+                symbolColor: paleGreen,
+                valueColor: paleGreen
             )
             detailMetricRow(
                 title: "←→",

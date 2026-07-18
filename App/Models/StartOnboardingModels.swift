@@ -122,6 +122,7 @@ struct StartOnboardingDraft: Hashable {
     var strategy: StartStrategyType = .stability
     var customCards: [StartCustomCardInput] = []
     var selectedRecommendationKeys: [SystemSubcategoryKey] = []
+    var goalTargetAmount: Double = 0
 
     func resolvedInput() -> StartOnboardingInput {
         StartOnboardingInput(
@@ -138,7 +139,8 @@ struct StartOnboardingDraft: Hashable {
             creditMonthlyPayment: creditMonthlyPayment,
             strategy: strategy,
             customCards: customCards,
-            selectedRecommendationKeys: selectedRecommendationKeys
+            selectedRecommendationKeys: selectedRecommendationKeys,
+            goalTargetAmount: goalTargetAmount
         )
     }
 }
@@ -158,6 +160,7 @@ struct StartOnboardingInput: Codable, Hashable {
     let strategy: StartStrategyType
     let customCards: [StartCustomCardInput]
     let selectedRecommendationKeys: [SystemSubcategoryKey]
+    let goalTargetAmount: Double
 
     init(
         monthlyIncome: Double,
@@ -173,7 +176,8 @@ struct StartOnboardingInput: Codable, Hashable {
         creditMonthlyPayment: Double,
         strategy: StartStrategyType,
         customCards: [StartCustomCardInput],
-        selectedRecommendationKeys: [SystemSubcategoryKey] = []
+        selectedRecommendationKeys: [SystemSubcategoryKey] = [],
+        goalTargetAmount: Double = 0
     ) {
         self.monthlyIncome = max(0, monthlyIncome)
         self.capital = capital
@@ -188,7 +192,11 @@ struct StartOnboardingInput: Codable, Hashable {
         self.creditMonthlyPayment = hasCredit ? max(0, creditMonthlyPayment) : 0
         self.strategy = strategy
         self.customCards = Self.normalizedCustomCards(customCards)
-        self.selectedRecommendationKeys = Array(Set(selectedRecommendationKeys)).sorted { $0.rawValue < $1.rawValue }
+        let normalizedGoalTargetAmount = max(0, goalTargetAmount)
+        self.goalTargetAmount = normalizedGoalTargetAmount
+        self.selectedRecommendationKeys = Array(Set(selectedRecommendationKeys))
+            .filter { $0 != .goal || normalizedGoalTargetAmount > 0 }
+            .sorted { $0.rawValue < $1.rawValue }
     }
 
     var adultDependentsCount: Int {
@@ -219,7 +227,10 @@ struct StartOnboardingInput: Codable, Hashable {
                 minLimit: item.minLimit,
                 percentage: item.percentage
             )
-            guard !normalized.name.isEmpty, normalized.minLimit > 0 else { continue }
+            guard !normalized.name.isEmpty,
+                  normalized.minLimit > 0 || normalized.percentage != nil else {
+                continue
+            }
             result.append(normalized)
         }
 
@@ -257,6 +268,7 @@ struct StartOnboardingConfiguration: Codable, Hashable {
     let input: StartOnboardingInput
     let settings: BudgetSettings
     let categoryBudgets: [StartCategoryBudget]
+    let coversDeficitsFromFreeCapital: Bool
     let mandatoryLivingMonthly: Double
     let monthlyMinimumExcludingEmergency: Double
     let emergencyTarget: Double

@@ -1,8 +1,14 @@
 import XCTest
 final class BudgetAllocationEngineTests: XCTestCase {
+    func testGoalSystemKeyProvidesStableMetadata() {
+        XCTAssertEqual(SystemSubcategoryKey.goal.defaultName, "Цель")
+        XCTAssertEqual(SystemSubcategoryKey.goal.defaultIconName, "target")
+        XCTAssertEqual(SystemSubcategoryKey.inferred(from: "Цель", isSystem: true), .goal)
+    }
+
     func testApplyIncomeDeltaAllocatesByBasePercent() {
         let engine = BudgetAllocationEngine()
-        var settings = BudgetSettings(
+        let settings = BudgetSettings(
             categories: [
                 ExpenseCategory(
                     type: .essentials,
@@ -38,6 +44,558 @@ final class BudgetAllocationEngineTests: XCTestCase {
         XCTAssertEqual(allocatedBySubcategoryID[settings.categories[0].subcategories[0].id, default: 0], 50, accuracy: 0.0001)
         XCTAssertEqual(allocatedBySubcategoryID[settings.categories[0].subcategories[1].id, default: 0], 50, accuracy: 0.0001)
         XCTAssertEqual(bankBalance, 0, accuracy: 0.0001)
+    }
+
+    func testApplyIncomeDeltaKeepsCategoryQuotasWhenMinimumCannotBeCovered() {
+        let engine = BudgetAllocationEngine()
+        let essentialsCard = Subcategory(
+            name: "Essentials",
+            percentage: 100,
+            minLimit: 60,
+            priority: 3
+        )
+        let wantsCard = Subcategory(
+            name: "Wants",
+            percentage: 100,
+            minLimit: 10,
+            priority: 2
+        )
+        let settings = BudgetSettings(
+            categories: [
+                ExpenseCategory(
+                    type: .essentials,
+                    percentage: 50,
+                    subcategories: [essentialsCard]
+                ),
+                ExpenseCategory(
+                    type: .wants,
+                    percentage: 50,
+                    subcategories: [wantsCard]
+                )
+            ],
+            currencyCode: "UAH"
+        )
+
+        var baselines: [UUID: Double] = [:]
+        var allocated: [UUID: Double] = [
+            essentialsCard.id: 0,
+            wantsCard.id: 0
+        ]
+        var bank: Double = 0
+        var incomeToBank: [UUID: Double] = [:]
+        var bankAutoDistribution: [UUID: Double] = [:]
+
+        engine.applyIncomeDelta(
+            100,
+            settings: settings,
+            categoryTargetBaselineByID: &baselines,
+            allocatedBySubcategoryID: &allocated,
+            bankBalance: &bank,
+            lastIncomeToBankByCategoryID: &incomeToBank,
+            lastBankAutoDistributedBySubcategoryID: &bankAutoDistribution
+        )
+
+        XCTAssertEqual(allocated[essentialsCard.id, default: 0], 50, accuracy: 0.0001)
+        XCTAssertEqual(allocated[wantsCard.id, default: 0], 50, accuracy: 0.0001)
+        XCTAssertEqual(bank, 0, accuracy: 0.0001)
+    }
+
+    func testApplyIncomeDeltaUsesPriorityInsideCategoryWhenIncomeCannotCoverMinimums() {
+        let engine = BudgetAllocationEngine()
+        let high = Subcategory(name: "High", percentage: 100, minLimit: 80, priority: 3)
+        let medium = Subcategory(name: "Medium", percentage: 100, minLimit: 80, priority: 2)
+        let settings = BudgetSettings(
+            categories: [
+                ExpenseCategory(
+                    type: .essentials,
+                    percentage: 100,
+                    subcategories: [high, medium]
+                )
+            ],
+            currencyCode: "UAH"
+        )
+
+        var baselines: [UUID: Double] = [:]
+        var allocated: [UUID: Double] = [high.id: 0, medium.id: 0]
+        var bank: Double = 0
+        var incomeToBank: [UUID: Double] = [:]
+        var bankAutoDistribution: [UUID: Double] = [:]
+
+        engine.applyIncomeDelta(
+            100,
+            settings: settings,
+            categoryTargetBaselineByID: &baselines,
+            allocatedBySubcategoryID: &allocated,
+            bankBalance: &bank,
+            lastIncomeToBankByCategoryID: &incomeToBank,
+            lastBankAutoDistributedBySubcategoryID: &bankAutoDistribution
+        )
+
+        XCTAssertEqual(allocated[high.id, default: 0], 80, accuracy: 0.0001)
+        XCTAssertEqual(allocated[medium.id, default: 0], 20, accuracy: 0.0001)
+        XCTAssertEqual(bank, 0, accuracy: 0.0001)
+    }
+
+    func testApplyIncomeDeltaFundsEmergencyTargetOnlyFromFinanceQuota() {
+        let engine = BudgetAllocationEngine()
+        let essentialsCard = Subcategory(
+            name: "Essentials",
+            percentage: 100,
+            minLimit: 40,
+            priority: 3
+        )
+        let emergencyFund = Subcategory(
+            name: "Emergency",
+            isSystem: true,
+            systemKey: .emergencyFund,
+            percentage: 100,
+            minLimit: 300,
+            priority: 3
+        )
+        let settings = BudgetSettings(
+            categories: [
+                ExpenseCategory(
+                    type: .essentials,
+                    percentage: 50,
+                    subcategories: [essentialsCard]
+                ),
+                ExpenseCategory(
+                    type: .savings,
+                    percentage: 50,
+                    subcategories: [emergencyFund]
+                )
+            ],
+            currencyCode: "UAH"
+        )
+
+        var baselines: [UUID: Double] = [:]
+        var allocated: [UUID: Double] = [
+            essentialsCard.id: 0,
+            emergencyFund.id: 0
+        ]
+        var bank: Double = 0
+        var incomeToBank: [UUID: Double] = [:]
+        var bankAutoDistribution: [UUID: Double] = [:]
+
+        engine.applyIncomeDelta(
+            100,
+            settings: settings,
+            categoryTargetBaselineByID: &baselines,
+            allocatedBySubcategoryID: &allocated,
+            bankBalance: &bank,
+            lastIncomeToBankByCategoryID: &incomeToBank,
+            lastBankAutoDistributedBySubcategoryID: &bankAutoDistribution
+        )
+
+        XCTAssertEqual(allocated[essentialsCard.id, default: 0], 50, accuracy: 0.0001)
+        XCTAssertEqual(allocated[emergencyFund.id, default: 0], 50, accuracy: 0.0001)
+        XCTAssertEqual(bank, 0, accuracy: 0.0001)
+    }
+
+    func testApplyIncomeDeltaUsesExactStrategyQuotas() {
+        let engine = BudgetAllocationEngine()
+        let essentials = Subcategory(name: "Essentials", percentage: 100, priority: 3)
+        let wants = Subcategory(name: "Wants", percentage: 100, priority: 2)
+        let finance = Subcategory(name: "Finance", percentage: 100, priority: 3)
+        let settings = BudgetSettings(
+            categories: [
+                ExpenseCategory(type: .essentials, percentage: 50, subcategories: [essentials]),
+                ExpenseCategory(type: .wants, percentage: 15, subcategories: [wants]),
+                ExpenseCategory(type: .savings, percentage: 35, subcategories: [finance])
+            ],
+            currencyCode: "UAH"
+        )
+
+        var baselines: [UUID: Double] = [:]
+        var allocated: [UUID: Double] = [:]
+        var bank: Double = 0
+        var incomeToBank: [UUID: Double] = [:]
+        var bankAutoDistribution: [UUID: Double] = [:]
+
+        engine.applyIncomeDelta(
+            100_000,
+            settings: settings,
+            categoryTargetBaselineByID: &baselines,
+            allocatedBySubcategoryID: &allocated,
+            bankBalance: &bank,
+            lastIncomeToBankByCategoryID: &incomeToBank,
+            lastBankAutoDistributedBySubcategoryID: &bankAutoDistribution
+        )
+
+        XCTAssertEqual(allocated[essentials.id, default: 0], 50_000, accuracy: 0.0001)
+        XCTAssertEqual(allocated[wants.id, default: 0], 15_000, accuracy: 0.0001)
+        XCTAssertEqual(allocated[finance.id, default: 0], 35_000, accuracy: 0.0001)
+        XCTAssertEqual(bank, 0, accuracy: 0.0001)
+    }
+
+    func testApplyIncomeDeltaNormalizesCardPercentageWeights() {
+        let engine = BudgetAllocationEngine()
+        let first = Subcategory(name: "First", percentage: 15, priority: 2)
+        let second = Subcategory(name: "Second", percentage: 10, priority: 2)
+        let settings = BudgetSettings(
+            categories: [
+                ExpenseCategory(type: .wants, percentage: 100, subcategories: [first, second])
+            ],
+            currencyCode: "UAH"
+        )
+
+        var baselines: [UUID: Double] = [:]
+        var allocated: [UUID: Double] = [:]
+        var bank: Double = 0
+        var incomeToBank: [UUID: Double] = [:]
+        var bankAutoDistribution: [UUID: Double] = [:]
+
+        engine.applyIncomeDelta(
+            100,
+            settings: settings,
+            categoryTargetBaselineByID: &baselines,
+            allocatedBySubcategoryID: &allocated,
+            bankBalance: &bank,
+            lastIncomeToBankByCategoryID: &incomeToBank,
+            lastBankAutoDistributedBySubcategoryID: &bankAutoDistribution
+        )
+
+        XCTAssertEqual(allocated[first.id, default: 0], 60, accuracy: 0.0001)
+        XCTAssertEqual(allocated[second.id, default: 0], 40, accuracy: 0.0001)
+        XCTAssertEqual(bank, 0, accuracy: 0.0001)
+    }
+
+    func testApplyIncomeDeltaRedistributesRemainderAfterMaximum() {
+        let engine = BudgetAllocationEngine()
+        let capped = Subcategory(
+            name: "Capped",
+            percentage: 50,
+            maxLimit: 20,
+            priority: 2
+        )
+        let unlimited = Subcategory(name: "Unlimited", percentage: 50, priority: 2)
+        let settings = BudgetSettings(
+            categories: [
+                ExpenseCategory(type: .wants, percentage: 100, subcategories: [capped, unlimited])
+            ],
+            currencyCode: "UAH"
+        )
+
+        var baselines: [UUID: Double] = [:]
+        var allocated: [UUID: Double] = [:]
+        var bank: Double = 0
+        var incomeToBank: [UUID: Double] = [:]
+        var bankAutoDistribution: [UUID: Double] = [:]
+
+        engine.applyIncomeDelta(
+            100,
+            settings: settings,
+            categoryTargetBaselineByID: &baselines,
+            allocatedBySubcategoryID: &allocated,
+            bankBalance: &bank,
+            lastIncomeToBankByCategoryID: &incomeToBank,
+            lastBankAutoDistributedBySubcategoryID: &bankAutoDistribution
+        )
+
+        XCTAssertEqual(allocated[capped.id, default: 0], 20, accuracy: 0.0001)
+        XCTAssertEqual(allocated[unlimited.id, default: 0], 80, accuracy: 0.0001)
+        XCTAssertEqual(bank, 0, accuracy: 0.0001)
+    }
+
+    func testApplyIncomeDeltaMovesOnlyUnallocatableRemainderToBank() {
+        let engine = BudgetAllocationEngine()
+        let first = Subcategory(
+            name: "First",
+            percentage: 50,
+            maxLimit: 20,
+            priority: 2
+        )
+        let second = Subcategory(
+            name: "Second",
+            percentage: 50,
+            maxLimit: 30,
+            priority: 2
+        )
+        let category = ExpenseCategory(
+            type: .wants,
+            percentage: 100,
+            subcategories: [first, second]
+        )
+        let settings = BudgetSettings(categories: [category], currencyCode: "UAH")
+
+        var baselines: [UUID: Double] = [:]
+        var allocated: [UUID: Double] = [:]
+        var bank: Double = 0
+        var incomeToBank: [UUID: Double] = [:]
+        var bankAutoDistribution: [UUID: Double] = [:]
+
+        engine.applyIncomeDelta(
+            100,
+            settings: settings,
+            categoryTargetBaselineByID: &baselines,
+            allocatedBySubcategoryID: &allocated,
+            bankBalance: &bank,
+            lastIncomeToBankByCategoryID: &incomeToBank,
+            lastBankAutoDistributedBySubcategoryID: &bankAutoDistribution
+        )
+
+        XCTAssertEqual(allocated[first.id, default: 0], 20, accuracy: 0.0001)
+        XCTAssertEqual(allocated[second.id, default: 0], 30, accuracy: 0.0001)
+        XCTAssertEqual(bank, 50, accuracy: 0.0001)
+        XCTAssertEqual(incomeToBank[category.id, default: 0], 50, accuracy: 0.0001)
+    }
+
+    func testApplyIncomeDeltaDistributesAfterMinimumsByWeights() {
+        let engine = BudgetAllocationEngine()
+        let high = Subcategory(name: "High", percentage: 10, minLimit: 60, priority: 3)
+        let medium = Subcategory(name: "Medium", percentage: 90, minLimit: 10, priority: 2)
+        let settings = BudgetSettings(
+            categories: [
+                ExpenseCategory(type: .essentials, percentage: 100, subcategories: [high, medium])
+            ],
+            currencyCode: "UAH"
+        )
+
+        var baselines: [UUID: Double] = [:]
+        var allocated: [UUID: Double] = [:]
+        var bank: Double = 0
+        var incomeToBank: [UUID: Double] = [:]
+        var bankAutoDistribution: [UUID: Double] = [:]
+
+        engine.applyIncomeDelta(
+            100,
+            settings: settings,
+            categoryTargetBaselineByID: &baselines,
+            allocatedBySubcategoryID: &allocated,
+            bankBalance: &bank,
+            lastIncomeToBankByCategoryID: &incomeToBank,
+            lastBankAutoDistributedBySubcategoryID: &bankAutoDistribution
+        )
+
+        XCTAssertEqual(allocated[high.id, default: 0], 63, accuracy: 0.0001)
+        XCTAssertEqual(allocated[medium.id, default: 0], 37, accuracy: 0.0001)
+        XCTAssertEqual(bank, 0, accuracy: 0.0001)
+    }
+
+    func testApplyIncomeDeltaSplitsSamePriorityMinimumsProportionally() {
+        let engine = BudgetAllocationEngine()
+        let first = Subcategory(name: "First", percentage: 50, minLimit: 80, priority: 2)
+        let second = Subcategory(name: "Second", percentage: 50, minLimit: 20, priority: 2)
+        let settings = BudgetSettings(
+            categories: [
+                ExpenseCategory(type: .essentials, percentage: 100, subcategories: [first, second])
+            ],
+            currencyCode: "UAH"
+        )
+
+        var baselines: [UUID: Double] = [:]
+        var allocated: [UUID: Double] = [:]
+        var bank: Double = 0
+        var incomeToBank: [UUID: Double] = [:]
+        var bankAutoDistribution: [UUID: Double] = [:]
+
+        engine.applyIncomeDelta(
+            50,
+            settings: settings,
+            categoryTargetBaselineByID: &baselines,
+            allocatedBySubcategoryID: &allocated,
+            bankBalance: &bank,
+            lastIncomeToBankByCategoryID: &incomeToBank,
+            lastBankAutoDistributedBySubcategoryID: &bankAutoDistribution
+        )
+
+        XCTAssertEqual(allocated[first.id, default: 0], 40, accuracy: 0.0001)
+        XCTAssertEqual(allocated[second.id, default: 0], 10, accuracy: 0.0001)
+        XCTAssertEqual(bank, 0, accuracy: 0.0001)
+    }
+
+    func testApplyIncomeDeltaFundsDebtBeforeOtherFinanceCardsAndStopsAtMaximum() {
+        let engine = BudgetAllocationEngine()
+        let debt = Subcategory(
+            name: "Debt",
+            isSystem: true,
+            systemKey: .debt,
+            percentage: 100,
+            minLimit: 60,
+            maxLimit: 60,
+            priority: 3
+        )
+        let emergency = Subcategory(
+            name: "Emergency",
+            isSystem: true,
+            systemKey: .emergencyFund,
+            percentage: 50,
+            minLimit: 100,
+            maxLimit: 100,
+            priority: 2
+        )
+        let settings = BudgetSettings(
+            categories: [
+                ExpenseCategory(type: .savings, percentage: 100, subcategories: [debt, emergency])
+            ],
+            currencyCode: "UAH"
+        )
+
+        var baselines: [UUID: Double] = [:]
+        var allocated: [UUID: Double] = [:]
+        var bank: Double = 0
+        var incomeToBank: [UUID: Double] = [:]
+        var bankAutoDistribution: [UUID: Double] = [:]
+
+        engine.applyIncomeDelta(
+            100,
+            settings: settings,
+            categoryTargetBaselineByID: &baselines,
+            allocatedBySubcategoryID: &allocated,
+            bankBalance: &bank,
+            lastIncomeToBankByCategoryID: &incomeToBank,
+            lastBankAutoDistributedBySubcategoryID: &bankAutoDistribution
+        )
+
+        XCTAssertEqual(allocated[debt.id, default: 0], 60, accuracy: 0.0001)
+        XCTAssertEqual(allocated[emergency.id, default: 0], 40, accuracy: 0.0001)
+        XCTAssertEqual(bank, 0, accuracy: 0.0001)
+    }
+
+    func testOnboardingCoverageUsesConfirmedStageOrderAndProportionalRemainder() {
+        let engine = BudgetAllocationEngine()
+        let housing = Subcategory(
+            name: "Housing",
+            isSystem: true,
+            systemKey: .housing,
+            percentage: 50,
+            minLimit: 30,
+            priority: 3
+        )
+        let food = Subcategory(
+            name: "Food",
+            isSystem: true,
+            systemKey: .food,
+            percentage: 50,
+            minLimit: 10,
+            priority: 3
+        )
+        let debt = Subcategory(
+            name: "Debt",
+            isSystem: true,
+            systemKey: .debt,
+            percentage: 100,
+            minLimit: 30,
+            maxLimit: 30,
+            priority: 3
+        )
+        let emergency = Subcategory(
+            name: "Emergency",
+            isSystem: true,
+            systemKey: .emergencyFund,
+            percentage: 50,
+            minLimit: 20,
+            maxLimit: 20,
+            priority: 2
+        )
+        let firstOther = Subcategory(
+            name: "First other",
+            percentage: 50,
+            minLimit: 50,
+            priority: 3
+        )
+        let secondOther = Subcategory(
+            name: "Second other",
+            percentage: 50,
+            minLimit: 50,
+            priority: 3
+        )
+        let settings = BudgetSettings(
+            categories: [
+                ExpenseCategory(
+                    type: .essentials,
+                    percentage: 50,
+                    subcategories: [housing, food]
+                ),
+                ExpenseCategory(
+                    type: .wants,
+                    percentage: 15,
+                    subcategories: [firstOther, secondOther]
+                ),
+                ExpenseCategory(
+                    type: .savings,
+                    percentage: 35,
+                    subcategories: [debt, emergency]
+                )
+            ],
+            currencyCode: "UAH"
+        )
+
+        var allocated: [UUID: Double] = [:]
+        var bank: Double = 100
+        var distributed: [UUID: Double] = [:]
+
+        engine.coverOnboardingDeficitsFromBank(
+            settings: settings,
+            allocatedBySubcategoryID: &allocated,
+            bankBalance: &bank,
+            distributedBySubcategoryID: &distributed
+        )
+
+        XCTAssertEqual(allocated[housing.id, default: 0], 30, accuracy: 0.0001)
+        XCTAssertEqual(allocated[food.id, default: 0], 10, accuracy: 0.0001)
+        XCTAssertEqual(allocated[debt.id, default: 0], 30, accuracy: 0.0001)
+        XCTAssertEqual(allocated[emergency.id, default: 0], 20, accuracy: 0.0001)
+        XCTAssertEqual(allocated[firstOther.id, default: 0], 5, accuracy: 0.0001)
+        XCTAssertEqual(allocated[secondOther.id, default: 0], 5, accuracy: 0.0001)
+        XCTAssertEqual(bank, 0, accuracy: 0.0001)
+        XCTAssertEqual(distributed.values.reduce(0, +), 100, accuracy: 0.0001)
+    }
+
+    func testOnboardingCoverageSplitsEssentialsOfSamePriorityByDeficit() {
+        let engine = BudgetAllocationEngine()
+        let largerDeficit = Subcategory(
+            name: "Larger",
+            percentage: 50,
+            minLimit: 30,
+            priority: 2
+        )
+        let smallerDeficit = Subcategory(
+            name: "Smaller",
+            percentage: 50,
+            minLimit: 10,
+            priority: 2
+        )
+        let debt = Subcategory(
+            name: "Debt",
+            isSystem: true,
+            systemKey: .debt,
+            percentage: 100,
+            minLimit: 100,
+            maxLimit: 100,
+            priority: 3
+        )
+        let settings = BudgetSettings(
+            categories: [
+                ExpenseCategory(
+                    type: .essentials,
+                    percentage: 50,
+                    subcategories: [largerDeficit, smallerDeficit]
+                ),
+                ExpenseCategory(
+                    type: .savings,
+                    percentage: 50,
+                    subcategories: [debt]
+                )
+            ],
+            currencyCode: "UAH"
+        )
+
+        var allocated: [UUID: Double] = [:]
+        var bank: Double = 20
+        var distributed: [UUID: Double] = [:]
+
+        engine.coverOnboardingDeficitsFromBank(
+            settings: settings,
+            allocatedBySubcategoryID: &allocated,
+            bankBalance: &bank,
+            distributedBySubcategoryID: &distributed
+        )
+
+        XCTAssertEqual(allocated[largerDeficit.id, default: 0], 15, accuracy: 0.0001)
+        XCTAssertEqual(allocated[smallerDeficit.id, default: 0], 5, accuracy: 0.0001)
+        XCTAssertEqual(allocated[debt.id, default: 0], 0, accuracy: 0.0001)
+        XCTAssertEqual(bank, 0, accuracy: 0.0001)
     }
 
     func testResolveMinimumDeficitsFromBankRespectsPriority() {
@@ -99,7 +657,7 @@ final class BudgetAllocationEngineTests: XCTestCase {
         let donorHigh = Subcategory(name: "HighDonor", percentage: 40, minLimit: 90, priority: 3)
         let newCard = Subcategory(name: "New", percentage: 20, minLimit: 50, priority: 1)
 
-        var settings = BudgetSettings(
+        let settings = BudgetSettings(
             categories: [ExpenseCategory(type: .essentials, percentage: 100, subcategories: [donorLow, donorHigh, newCard])],
             currencyCode: "UAH"
         )

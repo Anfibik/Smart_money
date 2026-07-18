@@ -23,6 +23,7 @@ enum SystemSubcategoryKey: String, Codable, CaseIterable, Hashable {
     case investments
     case business
     case currency
+    case goal
 
     var defaultName: String {
         switch self {
@@ -70,6 +71,8 @@ enum SystemSubcategoryKey: String, Codable, CaseIterable, Hashable {
             return "Бизнес"
         case .currency:
             return "Валюта"
+        case .goal:
+            return "Цель"
         }
     }
 
@@ -119,6 +122,8 @@ enum SystemSubcategoryKey: String, Codable, CaseIterable, Hashable {
             return "briefcase.fill"
         case .currency:
             return "dollarsign.arrow.circlepath"
+        case .goal:
+            return "target"
         }
     }
 
@@ -170,6 +175,8 @@ enum SystemSubcategoryKey: String, Codable, CaseIterable, Hashable {
             return .business
         case "валюта":
             return .currency
+        case "цель":
+            return .goal
         default:
             return nil
         }
@@ -316,6 +323,7 @@ enum SubcategoryIconCatalog {
         "chart.line.uptrend.xyaxis",
         "briefcase.fill",
         "dollarsign.circle.fill",
+        "target",
         "fork.knife.circle.fill",
         "beach.umbrella.fill"
     ]

@@ -14,47 +14,51 @@ final class BudgetAllocationEngine {
         lastIncomeToBankByCategoryID: inout [UUID: Double],
         lastBankAutoDistributedBySubcategoryID: inout [UUID: Double]
     ) {
+        guard deltaIncome > 0.0001 else { return }
+
+        let totalCategoryPercentage = settings.categories.reduce(0.0) {
+            $0 + max(0, $1.percentage)
+        }
+        let categoryPercentageDenominator = max(100, totalCategoryPercentage)
+        var incomeAssignedToCategories: Double = 0
+
         for category in settings.categories {
-            var movedToBankForCategory: Double = 0
-            let categoryDelta = deltaIncome * (category.percentage / 100.0)
+            let categoryDelta = deltaIncome
+                * (max(0, category.percentage) / categoryPercentageDenominator)
+            incomeAssignedToCategories += categoryDelta
+            categoryTargetBaselineByID[category.id, default: 0] += categoryDelta
+
             guard categoryDelta > 0 else {
                 lastIncomeToBankByCategoryID[category.id] = 0
                 continue
             }
 
-            categoryTargetBaselineByID[category.id, default: 0] += categoryDelta
-            let targetCategoryAmount = max(
-                categoryTargetBaselineByID[category.id, default: 0],
-                categoryCurrentAllocated(for: category, allocatedBySubcategoryID: allocatedBySubcategoryID)
-            )
-
-            let unmetBefore = unmetNeeds(
+            var categoryRemainder = categoryDelta
+            let minimumNeeds = minimumDeficitNeeds(
                 for: category,
-                targetCategoryAmount: targetCategoryAmount,
-                stage: .basePercent,
                 allocatedBySubcategoryID: allocatedBySubcategoryID
             )
-
-            guard !unmetBefore.isEmpty else {
-                bankBalance += categoryDelta
-                movedToBankForCategory += categoryDelta
-                lastIncomeToBankByCategoryID[category.id] = roundToCents(movedToBankForCategory)
-                continue
-            }
-
-            var incomePart = categoryDelta
-            distributeAcrossStages(
-                amount: &incomePart,
-                category: category,
-                targetCategoryAmount: targetCategoryAmount,
+            distributeAmount(
+                amount: &categoryRemainder,
+                across: minimumNeeds,
                 allocatedBySubcategoryID: &allocatedBySubcategoryID
             )
 
-            if incomePart > 0 {
-                bankBalance += incomePart
-                movedToBankForCategory += incomePart
+            distributeByPercentageWeights(
+                amount: &categoryRemainder,
+                category: category,
+                allocatedBySubcategoryID: &allocatedBySubcategoryID
+            )
+
+            if categoryRemainder > 0.0001 {
+                bankBalance += categoryRemainder
             }
-            lastIncomeToBankByCategoryID[category.id] = roundToCents(movedToBankForCategory)
+            lastIncomeToBankByCategoryID[category.id] = roundToCents(categoryRemainder)
+        }
+
+        let incomeWithoutCategory = max(0, deltaIncome - incomeAssignedToCategories)
+        if incomeWithoutCategory > 0.0001 {
+            bankBalance += incomeWithoutCategory
         }
     }
 
@@ -123,6 +127,89 @@ final class BudgetAllocationEngine {
             }
         }
 
+        bankBalance = max(0, remainingBankAmount)
+    }
+
+    func coverOnboardingDeficitsFromBank(
+        settings: BudgetSettings,
+        allocatedBySubcategoryID: inout [UUID: Double],
+        bankBalance: inout Double,
+        distributedBySubcategoryID: inout [UUID: Double]
+    ) {
+        guard bankBalance > 0.0001 else { return }
+
+        var remainingBankAmount = bankBalance
+        var coveredAmounts: [UUID: Double] = [:]
+        let onAllocate: (UUID, Double) -> Void = { subcategoryID, amount in
+            coveredAmounts[subcategoryID, default: 0] += amount
+        }
+
+        let essentialsNeeds = settings.categories
+            .filter { $0.type == .essentials }
+            .flatMap {
+                minimumDeficitNeeds(
+                    for: $0,
+                    allocatedBySubcategoryID: allocatedBySubcategoryID
+                )
+            }
+        distributeAmount(
+            amount: &remainingBankAmount,
+            across: essentialsNeeds,
+            allocatedBySubcategoryID: &allocatedBySubcategoryID,
+            onAllocate: onAllocate
+        )
+
+        let debtNeeds = prioritizedSystemNeeds(
+            systemKey: .debt,
+            settings: settings,
+            allocatedBySubcategoryID: allocatedBySubcategoryID
+        )
+        distributeAmount(
+            amount: &remainingBankAmount,
+            across: debtNeeds,
+            allocatedBySubcategoryID: &allocatedBySubcategoryID,
+            onAllocate: onAllocate
+        )
+
+        let emergencyNeeds = prioritizedSystemNeeds(
+            systemKey: .emergencyFund,
+            settings: settings,
+            allocatedBySubcategoryID: allocatedBySubcategoryID
+        )
+        distributeAmount(
+            amount: &remainingBankAmount,
+            across: emergencyNeeds,
+            allocatedBySubcategoryID: &allocatedBySubcategoryID,
+            onAllocate: onAllocate
+        )
+
+        let excludedIDs = Set(
+            settings.categories.flatMap { category in
+                category.subcategories.compactMap { subcategory -> UUID? in
+                    if category.type == .essentials
+                        || subcategory.systemKey == .debt
+                        || subcategory.systemKey == .emergencyFund {
+                        return subcategory.id
+                    }
+                    return nil
+                }
+            }
+        )
+        let remainingNeeds = minimumDeficitNeeds(
+            settings: settings,
+            allocatedBySubcategoryID: allocatedBySubcategoryID
+        )
+        .filter { !excludedIDs.contains($0.subcategoryID) }
+        distributeAmount(
+            amount: &remainingBankAmount,
+            across: remainingNeeds,
+            allocatedBySubcategoryID: &allocatedBySubcategoryID,
+            onAllocate: onAllocate
+        )
+
+        for (subcategoryID, amount) in coveredAmounts {
+            distributedBySubcategoryID[subcategoryID, default: 0] += amount
+        }
         bankBalance = max(0, remainingBankAmount)
     }
 
@@ -247,10 +334,23 @@ final class BudgetAllocationEngine {
         allocatedBySubcategoryID: [UUID: Double]
     ) -> [NeedEntry] {
         settings.categories.flatMap { category in
-            category.subcategories.compactMap { subcategory in
-                let minimumTarget = minimumFloorForRebalance(for: subcategory)
-                guard minimumTarget > 0 else { return nil }
+            minimumDeficitNeeds(
+                for: category,
+                allocatedBySubcategoryID: allocatedBySubcategoryID
+            )
+        }
+    }
 
+    private func prioritizedSystemNeeds(
+        systemKey: SystemSubcategoryKey,
+        settings: BudgetSettings,
+        allocatedBySubcategoryID: [UUID: Double]
+    ) -> [NeedEntry] {
+        settings.categories.flatMap { category in
+            category.subcategories.compactMap { subcategory in
+                guard subcategory.systemKey == systemKey else { return nil }
+
+                let minimumTarget = minimumFloorForRebalance(for: subcategory)
                 let allocated = allocatedBySubcategoryID[subcategory.id, default: 0]
                 let remaining = max(0, allocated - subcategory.spentAmount)
                 let need = max(0, minimumTarget - remaining)
@@ -265,27 +365,66 @@ final class BudgetAllocationEngine {
         }
     }
 
-    private func distributeAcrossStages(
+    private func minimumDeficitNeeds(
+        for category: ExpenseCategory,
+        allocatedBySubcategoryID: [UUID: Double]
+    ) -> [NeedEntry] {
+        category.subcategories.compactMap { subcategory in
+            let minimumTarget = minimumFloorForRebalance(for: subcategory)
+            guard minimumTarget > 0 else { return nil }
+
+            let allocated = allocatedBySubcategoryID[subcategory.id, default: 0]
+            let remaining = max(0, allocated - subcategory.spentAmount)
+            let need = max(0, minimumTarget - remaining)
+            guard need > 0.0001 else { return nil }
+
+            return NeedEntry(
+                subcategoryID: subcategory.id,
+                priority: subcategory.priority,
+                need: need
+            )
+        }
+    }
+
+    private func distributeByPercentageWeights(
         amount: inout Double,
         category: ExpenseCategory,
-        targetCategoryAmount: Double,
-        allocatedBySubcategoryID: inout [UUID: Double],
-        onAllocate: ((UUID, Double) -> Void)? = nil
+        allocatedBySubcategoryID: inout [UUID: Double]
     ) {
-        for stage in AllocationStage.allCases {
-            guard amount > 0 else { break }
-            let stageNeeds = unmetNeeds(
-                for: category,
-                targetCategoryAmount: targetCategoryAmount,
-                stage: stage,
-                allocatedBySubcategoryID: allocatedBySubcategoryID
-            )
-            distributeAmount(
-                amount: &amount,
-                across: stageNeeds,
-                allocatedBySubcategoryID: &allocatedBySubcategoryID,
-                onAllocate: onAllocate
-            )
+        while amount > 0.0001 {
+            let candidates: [WeightedCandidate] = category.subcategories.compactMap { subcategory in
+                let weight = max(0, subcategory.percentage)
+                guard weight > 0 else { return nil }
+
+                let allocated = allocatedBySubcategoryID[subcategory.id, default: 0]
+                let remaining = max(0, allocated - subcategory.spentAmount)
+                let capacity = max(0, maxCap(for: subcategory) - remaining)
+                guard capacity > 0.0001 else { return nil }
+
+                return WeightedCandidate(
+                    subcategoryID: subcategory.id,
+                    weight: weight,
+                    capacity: capacity
+                )
+            }
+
+            let totalWeight = candidates.reduce(0) { $0 + $1.weight }
+            guard totalWeight > 0 else { return }
+
+            let amountAtStart = amount
+            var allocatedThisRound: Double = 0
+
+            for candidate in candidates {
+                let weightedShare = amountAtStart * (candidate.weight / totalWeight)
+                let delta = min(weightedShare, candidate.capacity)
+                guard delta > 0 else { continue }
+
+                allocatedBySubcategoryID[candidate.subcategoryID, default: 0] += delta
+                allocatedThisRound += delta
+            }
+
+            guard allocatedThisRound > 0.0001 else { return }
+            amount = max(0, amount - allocatedThisRound)
         }
     }
 
@@ -382,58 +521,6 @@ final class BudgetAllocationEngine {
         amount = 0
     }
 
-    private func unmetNeeds(
-        for category: ExpenseCategory,
-        targetCategoryAmount: Double,
-        stage: AllocationStage,
-        allocatedBySubcategoryID: [UUID: Double]
-    ) -> [NeedEntry] {
-        category.subcategories.compactMap { subcategory in
-            let allocated = allocatedBySubcategoryID[subcategory.id, default: 0]
-            let remaining = max(0, allocated - subcategory.spentAmount)
-            let target = stageTarget(
-                for: subcategory,
-                targetCategoryAmount: targetCategoryAmount,
-                stage: stage
-            )
-            let need = max(0, target - remaining)
-
-            guard need > 0.0001 else { return nil }
-            return NeedEntry(subcategoryID: subcategory.id, priority: subcategory.priority, need: need)
-        }
-    }
-
-    private func stageTarget(
-        for subcategory: Subcategory,
-        targetCategoryAmount: Double,
-        stage: AllocationStage
-    ) -> Double {
-        let cap = maxCap(for: subcategory)
-
-        let minLimitTarget = min(max(0, subcategory.minLimit ?? 0), cap)
-
-        let basePercentTarget = min(
-            targetCategoryAmount * (max(0, subcategory.percentage) / 100.0),
-            cap
-        )
-
-        switch stage {
-        case .minLimit:
-            return minLimitTarget
-        case .basePercent:
-            return max(minLimitTarget, basePercentTarget)
-        }
-    }
-
-    private func categoryCurrentAllocated(
-        for category: ExpenseCategory,
-        allocatedBySubcategoryID: [UUID: Double]
-    ) -> Double {
-        category.subcategories.reduce(0) { partialResult, subcategory in
-            partialResult + allocatedBySubcategoryID[subcategory.id, default: 0]
-        }
-    }
-
     private func normalizedPriorityRaw(for rawPriority: Int) -> Int {
         if rawPriority == highPriorityRaw { return highPriorityRaw }
         if rawPriority == mediumPriorityRaw { return mediumPriorityRaw }
@@ -484,7 +571,8 @@ private struct NeedEntry {
     let need: Double
 }
 
-private enum AllocationStage: CaseIterable {
-    case minLimit
-    case basePercent
+private struct WeightedCandidate {
+    let subcategoryID: UUID
+    let weight: Double
+    let capacity: Double
 }
