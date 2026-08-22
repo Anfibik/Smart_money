@@ -82,13 +82,18 @@ struct BudgetPersistedState: Codable {
 final class PersistenceService {
     private let defaults: UserDefaults
     private let storageKey: String
+    private let saveQueue: DispatchQueue
+    private var pendingSave: DispatchWorkItem?
+    private var pendingState: BudgetPersistedState?
 
     init(
         defaults: UserDefaults = .standard,
-        storageKey: String = "budget_state_v2"
+        storageKey: String = "budget_state_v2",
+        saveQueue: DispatchQueue = DispatchQueue(label: "smart-money.persistence-save", qos: .utility)
     ) {
         self.defaults = defaults
         self.storageKey = storageKey
+        self.saveQueue = saveQueue
     }
 
     func loadBudgetState() -> BudgetPersistedState? {
@@ -97,11 +102,37 @@ final class PersistenceService {
     }
 
     func saveBudgetState(_ state: BudgetPersistedState) {
+        pendingSave?.cancel()
+        pendingSave = nil
+        pendingState = nil
         guard let data = try? JSONEncoder().encode(state) else { return }
         defaults.set(data, forKey: storageKey)
     }
 
+    func scheduleSaveBudgetState(_ state: BudgetPersistedState, delay: TimeInterval = 0.35) {
+        pendingSave?.cancel()
+        pendingState = state
+
+        let defaults = defaults
+        let storageKey = storageKey
+        let workItem = DispatchWorkItem {
+            guard let data = try? JSONEncoder().encode(state) else { return }
+            defaults.set(data, forKey: storageKey)
+        }
+
+        pendingSave = workItem
+        saveQueue.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    func flushPendingSave() {
+        guard let pendingState else { return }
+        saveBudgetState(pendingState)
+    }
+
     func clearBudgetState() {
+        pendingSave?.cancel()
+        pendingSave = nil
+        pendingState = nil
         defaults.removeObject(forKey: storageKey)
     }
 }

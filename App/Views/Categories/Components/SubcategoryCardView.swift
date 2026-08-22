@@ -96,14 +96,14 @@ struct SubcategoryCardView: View {
             detailMetricRow(
                 title: "+",
                 value: currencyString(subcategory.monthlyIncomeDistributionAmount),
-                symbolColor: .green,
-                valueColor: .green
+                symbolColor: AppTheme.positive,
+                valueColor: AppTheme.positive
             )
             detailMetricRow(
                 title: "-",
                 value: currencyString(subcategory.monthlyExpenseAmount),
-                symbolColor: .red,
-                valueColor: .red
+                symbolColor: AppTheme.negative,
+                valueColor: AppTheme.negative
             )
             detailMetricRow(
                 title: "→←",
@@ -170,11 +170,11 @@ struct SubcategoryCardView: View {
     }
 
     private var paleGreen: Color {
-        .green.opacity(0.62)
+        AppTheme.positive.opacity(0.62)
     }
 
     private var paleRed: Color {
-        .red.opacity(0.62)
+        AppTheme.negative.opacity(0.62)
     }
 
     private var statusColor: Color {
@@ -182,9 +182,9 @@ struct SubcategoryCardView: View {
         case .normal:
             return .primary
         case .deficit:
-            return .orange
+            return AppTheme.warning
         case .negative:
-            return .red
+            return AppTheme.negative
         }
     }
 

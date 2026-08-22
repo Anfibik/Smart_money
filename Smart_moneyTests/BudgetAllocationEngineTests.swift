@@ -6,6 +6,186 @@ final class BudgetAllocationEngineTests: XCTestCase {
         XCTAssertEqual(SystemSubcategoryKey.inferred(from: "Цель", isSystem: true), .goal)
     }
 
+    func testSystemCardCatalogDefinesEverySystemCardOnce() {
+        let catalog = SystemCardCatalog.standard
+        let keys = catalog.definitions.map(\.systemKey)
+
+        XCTAssertEqual(keys.count, SystemSubcategoryKey.allCases.count)
+        XCTAssertEqual(Set(keys).count, keys.count)
+        XCTAssertEqual(
+            Set(catalog.recommendedDefinitions.map(\.systemKey)),
+            Set([
+                .hobby,
+                .travel,
+                .restaurants,
+                .gifts,
+                .sport,
+                .beauty,
+                .subscriptions,
+                .investments,
+                .business,
+                .currency,
+                .goal
+            ])
+        )
+
+        let currencyDefinition = catalog.definition(for: .currency)
+        XCTAssertEqual(currencyDefinition.defaultPercentage, 0, accuracy: 0.0001)
+        XCTAssertEqual(currencyDefinition.defaultMinLimit, 0, accuracy: 0.0001)
+        XCTAssertEqual(currencyDefinition.fundingMode, .manualOnly)
+    }
+
+    func testIncomeDistributionIgnoresManualCurrencyCardBalance() {
+        let engine = BudgetAllocationEngine()
+        let automaticCard = Subcategory(
+            name: "Automatic",
+            percentage: 100,
+            priority: 2
+        )
+        let currencyCard = Subcategory(
+            name: "Currency",
+            isSystem: true,
+            systemKey: .currency,
+            percentage: 0,
+            priority: 2,
+            fundingMode: .manualOnly,
+            balanceCurrencyCode: ForeignCurrencyType.usd.rawValue
+        )
+        let category = ExpenseCategory(
+            type: .savings,
+            percentage: 100,
+            subcategories: [automaticCard, currencyCard]
+        )
+        let settings = BudgetSettings(categories: [category], currencyCode: "UAH")
+
+        var baselines: [UUID: Double] = [:]
+        var allocated: [UUID: Double] = [
+            automaticCard.id: 0,
+            currencyCard.id: 1_000
+        ]
+        var bank: Double = 0
+        var incomeToBank: [UUID: Double] = [:]
+        var bankDistribution: [UUID: Double] = [:]
+
+        engine.applyIncomeDelta(
+            10_000,
+            settings: settings,
+            categoryTargetBaselineByID: &baselines,
+            allocatedBySubcategoryID: &allocated,
+            bankBalance: &bank,
+            lastIncomeToBankByCategoryID: &incomeToBank,
+            lastBankAutoDistributedBySubcategoryID: &bankDistribution
+        )
+
+        XCTAssertEqual(allocated[automaticCard.id, default: 0], 10_000, accuracy: 0.0001)
+        XCTAssertEqual(allocated[currencyCard.id, default: 0], 1_000, accuracy: 0.0001)
+        XCTAssertEqual(bank, 0, accuracy: 0.0001)
+    }
+
+    func testCoveragePolicySeparatesCardDeficitsFromEmergencyFund() {
+        let engine = BudgetAllocationEngine()
+        let essential = Subcategory(
+            name: "Essential",
+            percentage: 100,
+            minLimit: 50,
+            priority: 3
+        )
+        let emergency = Subcategory(
+            name: "Emergency",
+            isSystem: true,
+            systemKey: .emergencyFund,
+            percentage: 100,
+            minLimit: 50,
+            maxLimit: 50,
+            priority: 3
+        )
+        let settings = BudgetSettings(
+            categories: [
+                ExpenseCategory(
+                    type: .essentials,
+                    percentage: 50,
+                    subcategories: [essential]
+                ),
+                ExpenseCategory(
+                    type: .savings,
+                    percentage: 50,
+                    subcategories: [emergency]
+                )
+            ],
+            currencyCode: "UAH"
+        )
+
+        var disabledAllocations: [UUID: Double] = [:]
+        var disabledBank: Double = 100
+        var disabledDistribution: [UUID: Double] = [:]
+        engine.coverOnboardingDeficitsFromBank(
+            settings: settings,
+            policy: .none,
+            allocatedBySubcategoryID: &disabledAllocations,
+            bankBalance: &disabledBank,
+            distributedBySubcategoryID: &disabledDistribution
+        )
+
+        XCTAssertEqual(disabledAllocations[essential.id, default: 0], 0, accuracy: 0.0001)
+        XCTAssertEqual(disabledAllocations[emergency.id, default: 0], 0, accuracy: 0.0001)
+        XCTAssertEqual(disabledBank, 100, accuracy: 0.0001)
+
+        var emergencyOnlyAllocations: [UUID: Double] = [:]
+        var emergencyOnlyBank: Double = 50
+        var emergencyOnlyDistribution: [UUID: Double] = [:]
+        engine.coverOnboardingDeficitsFromBank(
+            settings: settings,
+            policy: .emergencyFundOnly,
+            allocatedBySubcategoryID: &emergencyOnlyAllocations,
+            bankBalance: &emergencyOnlyBank,
+            distributedBySubcategoryID: &emergencyOnlyDistribution
+        )
+
+        XCTAssertEqual(emergencyOnlyAllocations[essential.id, default: 0], 0, accuracy: 0.0001)
+        XCTAssertEqual(emergencyOnlyAllocations[emergency.id, default: 0], 50, accuracy: 0.0001)
+
+        var cardOnlyAllocations: [UUID: Double] = [:]
+        var cardOnlyBank: Double = 50
+        var cardOnlyDistribution: [UUID: Double] = [:]
+        engine.coverOnboardingDeficitsFromBank(
+            settings: settings,
+            policy: .cardDeficitsOnly,
+            allocatedBySubcategoryID: &cardOnlyAllocations,
+            bankBalance: &cardOnlyBank,
+            distributedBySubcategoryID: &cardOnlyDistribution
+        )
+
+        XCTAssertEqual(cardOnlyAllocations[essential.id, default: 0], 50, accuracy: 0.0001)
+        XCTAssertEqual(cardOnlyAllocations[emergency.id, default: 0], 0, accuracy: 0.0001)
+
+        var allAllocations: [UUID: Double] = [:]
+        var allBank: Double = 100
+        var allDistribution: [UUID: Double] = [:]
+        engine.coverOnboardingDeficitsFromBank(
+            settings: settings,
+            policy: .allOnboardingDeficits,
+            allocatedBySubcategoryID: &allAllocations,
+            bankBalance: &allBank,
+            distributedBySubcategoryID: &allDistribution
+        )
+
+        XCTAssertEqual(allAllocations[essential.id, default: 0], 50, accuracy: 0.0001)
+        XCTAssertEqual(allAllocations[emergency.id, default: 0], 50, accuracy: 0.0001)
+        XCTAssertEqual(allBank, 0, accuracy: 0.0001)
+
+        XCTAssertEqual(
+            FreeCapitalCoveragePolicy.none
+                .settingCardDeficitsCoverage(true)
+                .settingEmergencyFundCoverage(true),
+            .allOnboardingDeficits
+        )
+        XCTAssertEqual(
+            FreeCapitalCoveragePolicy.allOnboardingDeficits
+                .settingEmergencyFundCoverage(false),
+            .cardDeficitsOnly
+        )
+    }
+
     func testApplyIncomeDeltaAllocatesByBasePercent() {
         let engine = BudgetAllocationEngine()
         let settings = BudgetSettings(
@@ -133,6 +313,52 @@ final class BudgetAllocationEngineTests: XCTestCase {
 
         XCTAssertEqual(allocated[high.id, default: 0], 80, accuracy: 0.0001)
         XCTAssertEqual(allocated[medium.id, default: 0], 20, accuracy: 0.0001)
+        XCTAssertEqual(bank, 0, accuracy: 0.0001)
+    }
+
+    func testEssentialsHighMinimumCannotStarveOtherMandatoryCards() {
+        let engine = BudgetAllocationEngine()
+        let housing = Subcategory(
+            name: "Housing",
+            percentage: 25,
+            minLimit: 100,
+            priority: 3
+        )
+        let food = Subcategory(
+            name: "Food",
+            percentage: 20,
+            minLimit: 20,
+            priority: 2
+        )
+        let settings = BudgetSettings(
+            categories: [
+                ExpenseCategory(
+                    type: .essentials,
+                    percentage: 100,
+                    subcategories: [housing, food]
+                )
+            ],
+            currencyCode: "UAH"
+        )
+
+        var baselines: [UUID: Double] = [:]
+        var allocated: [UUID: Double] = [:]
+        var bank: Double = 0
+        var incomeToBank: [UUID: Double] = [:]
+        var bankAutoDistribution: [UUID: Double] = [:]
+
+        engine.applyIncomeDelta(
+            60,
+            settings: settings,
+            categoryTargetBaselineByID: &baselines,
+            allocatedBySubcategoryID: &allocated,
+            bankBalance: &bank,
+            lastIncomeToBankByCategoryID: &incomeToBank,
+            lastBankAutoDistributedBySubcategoryID: &bankAutoDistribution
+        )
+
+        XCTAssertEqual(allocated[housing.id, default: 0], 50, accuracy: 0.0001)
+        XCTAssertEqual(allocated[food.id, default: 0], 10, accuracy: 0.0001)
         XCTAssertEqual(bank, 0, accuracy: 0.0001)
     }
 
@@ -527,6 +753,7 @@ final class BudgetAllocationEngineTests: XCTestCase {
 
         engine.coverOnboardingDeficitsFromBank(
             settings: settings,
+            policy: .allOnboardingDeficits,
             allocatedBySubcategoryID: &allocated,
             bankBalance: &bank,
             distributedBySubcategoryID: &distributed
@@ -587,6 +814,7 @@ final class BudgetAllocationEngineTests: XCTestCase {
 
         engine.coverOnboardingDeficitsFromBank(
             settings: settings,
+            policy: .allOnboardingDeficits,
             allocatedBySubcategoryID: &allocated,
             bankBalance: &bank,
             distributedBySubcategoryID: &distributed

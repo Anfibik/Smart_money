@@ -178,6 +178,48 @@ final class BudgetViewModelExpenseTests: XCTestCase {
         XCTAssertTrue(viewModel.historyEvents.isEmpty)
     }
 
+    func testStartOnboardingApplicationUsesWholeHryvniaAmounts() {
+        let builder = StartOnboardingBuilder()
+        let input = StartOnboardingInput(
+            monthlyIncome: 120_000.02,
+            capital: 399_999.51,
+            housingType: .rented,
+            housingCost: 20_000.49,
+            hasCar: true,
+            dependentsCount: 1,
+            elderlyDependentsCount: 0,
+            childrenCount: 1,
+            petsCount: 1,
+            hasCredit: true,
+            creditMonthlyPayment: 7_500.75,
+            strategy: .stability,
+            customCards: [],
+            selectedRecommendationKeys: [.currency],
+            foreignCurrencyAmount: 1_234.56
+        )
+        let configuration = builder.buildPreview(input: input).configuration
+        let viewModel = makeViewModel(income: 0, categories: BudgetSettings().categories)
+
+        viewModel.applyStartOnboardingConfiguration(configuration)
+
+        XCTAssertWholeHryvnia(viewModel.distribution.income)
+        XCTAssertWholeHryvnia(viewModel.distribution.bankAmount)
+
+        for category in viewModel.distribution.categoryAllocations {
+            XCTAssertWholeHryvnia(category.allocatedAmount)
+            XCTAssertWholeHryvnia(category.lastIncomeToBankAmount)
+            XCTAssertWholeHryvnia(category.deficitAmount)
+
+            for subcategory in category.subcategoryAllocations {
+                XCTAssertWholeHryvnia(subcategory.allocatedAmount)
+                XCTAssertWholeHryvnia(subcategory.remainingAmount)
+                XCTAssertWholeHryvnia(subcategory.monthlyIncomeAmount)
+                XCTAssertWholeHryvnia(subcategory.monthlyIncomeDistributionAmount)
+                XCTAssertWholeHryvnia(subcategory.monthlyOtherIncomingAmount)
+            }
+        }
+    }
+
     private func makeViewModel(
         income: Double,
         categories: [ExpenseCategory],
@@ -244,5 +286,13 @@ final class BudgetViewModelExpenseTests: XCTestCase {
             file: file,
             line: line
         )
+    }
+
+    private func XCTAssertWholeHryvnia(
+        _ value: Double,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(value, value.rounded(), accuracy: 0.0001, file: file, line: line)
     }
 }

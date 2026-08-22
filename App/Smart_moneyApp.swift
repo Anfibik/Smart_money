@@ -12,6 +12,8 @@ struct Smart_moneyApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .preferredColorScheme(.dark)
+                .tint(AppTheme.accent)
         }
     }
 }

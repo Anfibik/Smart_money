@@ -1,7 +1,9 @@
 import SwiftUI
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var budgetViewModel = BudgetViewModel()
+    private let installMetadataService = AppInstallMetadataService()
     @State private var incomeInput: String = ""
     @State private var isIncomeInputVisible = false
     @State private var isShowingInitialSetup = false
@@ -11,7 +13,7 @@ struct ContentView: View {
     @State private var isShowingHistory = false
     @State private var isShowingHistoryAndStatistics = false
     @AppStorage("has_completed_start_onboarding_v2") private var hasCompletedStartOnboarding = false
-    @FocusState private var isIncomeFieldFocused: Bool
+    @State private var isIncomeFieldFocused = false
 
     var body: some View {
         NavigationStack {
@@ -140,6 +142,37 @@ struct ContentView: View {
                                         subcategoryID: subcategoryID,
                                         amount: amount
                                     )
+                                },
+                                onManualCardDeposit: { categoryType, subcategoryID, amount in
+                                    budgetViewModel.depositToManualCard(
+                                        categoryType: categoryType,
+                                        subcategoryID: subcategoryID,
+                                        amount: amount
+                                    )
+                                },
+                                onManualCardDepositFromFreeCapital: { categoryType, subcategoryID, foreignAmount, hryvniaAmount, exchangeRate in
+                                    budgetViewModel.depositToManualCardFromFreeCapital(
+                                        categoryType: categoryType,
+                                        subcategoryID: subcategoryID,
+                                        foreignAmount: foreignAmount,
+                                        hryvniaAmount: hryvniaAmount,
+                                        exchangeRateToUAH: exchangeRate
+                                    )
+                                },
+                                onUpdateManualCardCurrency: { categoryType, subcategoryID, currency in
+                                    budgetViewModel.updateManualCardCurrency(
+                                        categoryType: categoryType,
+                                        subcategoryID: subcategoryID,
+                                        currency: currency
+                                    )
+                                },
+                                onConvertManualCardToFreeCapital: { categoryType, subcategoryID, amount, exchangeRate in
+                                    budgetViewModel.convertManualCardToFreeCapital(
+                                        categoryType: categoryType,
+                                        subcategoryID: subcategoryID,
+                                        amount: amount,
+                                        exchangeRateToUAH: exchangeRate
+                                    )
                                 }
                             )
                         }
@@ -172,14 +205,6 @@ struct ContentView: View {
                 }
                 .animation(.easeInOut(duration: 0.22), value: isSideMenuOpen)
             }
-            .toolbar {
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Готово") {
-                        isIncomeFieldFocused = false
-                    }
-                }
-            }
             .navigationDestination(isPresented: $isShowingHistoryAndStatistics) {
                 HistoryAndStatisticsView(budgetViewModel: budgetViewModel)
             }
@@ -196,7 +221,12 @@ struct ContentView: View {
             .interactiveDismissDisabled(true)
         }
         .onAppear {
+            installMetadataService.registerFirstLaunchIfNeeded()
             bootstrapInitialSetupIfNeeded()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            guard newPhase != .active else { return }
+            budgetViewModel.flushPendingPersistence()
         }
         .alert("Сброс первичной настройки", isPresented: $isShowingResetSetupAlert) {
             Button("Отмена", role: .cancel) {}
@@ -219,10 +249,12 @@ struct ContentView: View {
             }
             .accessibilityLabel(isIncomeInputVisible ? "Скрыть ввод дохода" : "Показать ввод дохода")
             if isIncomeInputVisible {
-                TextField("Введите доход", text: $incomeInput)
-                    .keyboardType(.decimalPad)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($isIncomeFieldFocused)
+                CurrencyInput(
+                    text: $incomeInput,
+                    placeholder: "Введите доход",
+                    currencyCode: budgetViewModel.settings.currencyCode,
+                    externalFocus: $isIncomeFieldFocused
+                )
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             } else {
                 Spacer(minLength: 0)
@@ -233,7 +265,7 @@ struct ContentView: View {
             } label: {
                 Image(systemName: shouldShowSubmitIncomeAction ? "checkmark.circle.fill" : "line.3.horizontal.circle.fill")
                     .font(.title2)
-                    .foregroundStyle(shouldShowSubmitIncomeAction ? .green : .secondary)
+                    .foregroundStyle(shouldShowSubmitIncomeAction ? AppTheme.positive : .secondary)
             }
             .accessibilityLabel(shouldShowSubmitIncomeAction ? "Подтвердить доход" : "Открыть меню")
         }
@@ -246,7 +278,7 @@ struct ContentView: View {
     }
 
     private var hasIncomeDigits: Bool {
-        incomeInput.unicodeScalars.contains(where: CharacterSet.decimalDigits.contains)
+        CurrencyInputFormatter.value(from: incomeInput, allowsNegative: false) > 0
     }
 
     private var sideMenuOverlayColor: Color {
@@ -293,8 +325,7 @@ struct ContentView: View {
     }
 
     private func submitIncome() {
-        let normalized = incomeInput.replacingOccurrences(of: ",", with: ".")
-        let value = Double(normalized) ?? 0
+        let value = CurrencyInputFormatter.value(from: incomeInput, allowsNegative: false)
         budgetViewModel.addIncome(value)
         collapseIncomeInput()
     }

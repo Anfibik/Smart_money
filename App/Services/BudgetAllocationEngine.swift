@@ -38,9 +38,10 @@ final class BudgetAllocationEngine {
                 for: category,
                 allocatedBySubcategoryID: allocatedBySubcategoryID
             )
-            distributeAmount(
+            distributeIncomeAcrossMinimums(
                 amount: &categoryRemainder,
-                across: minimumNeeds,
+                categoryType: category.type,
+                needs: minimumNeeds,
                 allocatedBySubcategoryID: &allocatedBySubcategoryID
             )
 
@@ -132,11 +133,12 @@ final class BudgetAllocationEngine {
 
     func coverOnboardingDeficitsFromBank(
         settings: BudgetSettings,
+        policy: FreeCapitalCoveragePolicy,
         allocatedBySubcategoryID: inout [UUID: Double],
         bankBalance: inout Double,
         distributedBySubcategoryID: inout [UUID: Double]
     ) {
-        guard bankBalance > 0.0001 else { return }
+        guard policy.isEnabled, bankBalance > 0.0001 else { return }
 
         var remainingBankAmount = bankBalance
         var coveredAmounts: [UUID: Double] = [:]
@@ -144,68 +146,74 @@ final class BudgetAllocationEngine {
             coveredAmounts[subcategoryID, default: 0] += amount
         }
 
-        let essentialsNeeds = settings.categories
-            .filter { $0.type == .essentials }
-            .flatMap {
-                minimumDeficitNeeds(
-                    for: $0,
-                    allocatedBySubcategoryID: allocatedBySubcategoryID
-                )
-            }
-        distributeAmount(
-            amount: &remainingBankAmount,
-            across: essentialsNeeds,
-            allocatedBySubcategoryID: &allocatedBySubcategoryID,
-            onAllocate: onAllocate
-        )
-
-        let debtNeeds = prioritizedSystemNeeds(
-            systemKey: .debt,
-            settings: settings,
-            allocatedBySubcategoryID: allocatedBySubcategoryID
-        )
-        distributeAmount(
-            amount: &remainingBankAmount,
-            across: debtNeeds,
-            allocatedBySubcategoryID: &allocatedBySubcategoryID,
-            onAllocate: onAllocate
-        )
-
-        let emergencyNeeds = prioritizedSystemNeeds(
-            systemKey: .emergencyFund,
-            settings: settings,
-            allocatedBySubcategoryID: allocatedBySubcategoryID
-        )
-        distributeAmount(
-            amount: &remainingBankAmount,
-            across: emergencyNeeds,
-            allocatedBySubcategoryID: &allocatedBySubcategoryID,
-            onAllocate: onAllocate
-        )
-
-        let excludedIDs = Set(
-            settings.categories.flatMap { category in
-                category.subcategories.compactMap { subcategory -> UUID? in
-                    if category.type == .essentials
-                        || subcategory.systemKey == .debt
-                        || subcategory.systemKey == .emergencyFund {
-                        return subcategory.id
-                    }
-                    return nil
+        if policy.coversCardDeficits {
+            let essentialsNeeds = settings.categories
+                .filter { $0.type == .essentials }
+                .flatMap {
+                    minimumDeficitNeeds(
+                        for: $0,
+                        allocatedBySubcategoryID: allocatedBySubcategoryID
+                    )
                 }
-            }
-        )
-        let remainingNeeds = minimumDeficitNeeds(
-            settings: settings,
-            allocatedBySubcategoryID: allocatedBySubcategoryID
-        )
-        .filter { !excludedIDs.contains($0.subcategoryID) }
-        distributeAmount(
-            amount: &remainingBankAmount,
-            across: remainingNeeds,
-            allocatedBySubcategoryID: &allocatedBySubcategoryID,
-            onAllocate: onAllocate
-        )
+            distributeAmount(
+                amount: &remainingBankAmount,
+                across: essentialsNeeds,
+                allocatedBySubcategoryID: &allocatedBySubcategoryID,
+                onAllocate: onAllocate
+            )
+
+            let debtNeeds = prioritizedSystemNeeds(
+                systemKey: .debt,
+                settings: settings,
+                allocatedBySubcategoryID: allocatedBySubcategoryID
+            )
+            distributeAmount(
+                amount: &remainingBankAmount,
+                across: debtNeeds,
+                allocatedBySubcategoryID: &allocatedBySubcategoryID,
+                onAllocate: onAllocate
+            )
+        }
+
+        if policy.coversEmergencyFund {
+            let emergencyNeeds = prioritizedSystemNeeds(
+                systemKey: .emergencyFund,
+                settings: settings,
+                allocatedBySubcategoryID: allocatedBySubcategoryID
+            )
+            distributeAmount(
+                amount: &remainingBankAmount,
+                across: emergencyNeeds,
+                allocatedBySubcategoryID: &allocatedBySubcategoryID,
+                onAllocate: onAllocate
+            )
+        }
+
+        if policy.coversCardDeficits {
+            let excludedIDs = Set(
+                settings.categories.flatMap { category in
+                    category.subcategories.compactMap { subcategory -> UUID? in
+                        if category.type == .essentials
+                            || subcategory.systemKey == .debt
+                            || subcategory.systemKey == .emergencyFund {
+                            return subcategory.id
+                        }
+                        return nil
+                    }
+                }
+            )
+            let remainingNeeds = minimumDeficitNeeds(
+                settings: settings,
+                allocatedBySubcategoryID: allocatedBySubcategoryID
+            )
+            .filter { !excludedIDs.contains($0.subcategoryID) }
+            distributeAmount(
+                amount: &remainingBankAmount,
+                across: remainingNeeds,
+                allocatedBySubcategoryID: &allocatedBySubcategoryID,
+                onAllocate: onAllocate
+            )
+        }
 
         for (subcategoryID, amount) in coveredAmounts {
             distributedBySubcategoryID[subcategoryID, default: 0] += amount
@@ -250,6 +258,7 @@ final class BudgetAllocationEngine {
         guard settings.categories.indices.contains(categoryIndex) else { return }
         let category = settings.categories[categoryIndex]
         guard let newSubcategory = category.subcategories.first(where: { $0.id == newSubcategoryID }) else { return }
+        guard newSubcategory.participatesInAutomaticAllocation else { return }
 
         let targetMinimum = minimumFloorForRebalance(for: newSubcategory)
         guard targetMinimum > 0 else { return }
@@ -265,7 +274,9 @@ final class BudgetAllocationEngine {
             guard required > 0.0001 else { break }
 
             let donors = category.subcategories.filter { subcategory in
-                subcategory.id != newSubcategoryID && normalizedPriorityRaw(for: subcategory.priority) == level
+                subcategory.participatesInAutomaticAllocation
+                    && subcategory.id != newSubcategoryID
+                    && normalizedPriorityRaw(for: subcategory.priority) == level
             }
             guard !donors.isEmpty else { continue }
 
@@ -311,6 +322,7 @@ final class BudgetAllocationEngine {
         guard let subIndex = settings.categories[categoryIndex].subcategories.firstIndex(where: { $0.id == subcategoryID }) else { return }
 
         let subcategory = settings.categories[categoryIndex].subcategories[subIndex]
+        guard subcategory.participatesInAutomaticAllocation else { return }
         guard let maxLimit = subcategory.maxLimit, maxLimit > 0 else { return }
 
         let allocated = allocatedBySubcategoryID[subcategoryID, default: 0]
@@ -323,6 +335,7 @@ final class BudgetAllocationEngine {
     }
 
     func minimumFloorForRebalance(for subcategory: Subcategory) -> Double {
+        guard subcategory.participatesInAutomaticAllocation else { return 0 }
         let cap = maxCap(for: subcategory)
         let minLimitTarget = min(max(0, subcategory.minLimit ?? 0), cap)
         guard minLimitTarget > 0 else { return 0 }
@@ -348,7 +361,8 @@ final class BudgetAllocationEngine {
     ) -> [NeedEntry] {
         settings.categories.flatMap { category in
             category.subcategories.compactMap { subcategory in
-                guard subcategory.systemKey == systemKey else { return nil }
+                guard subcategory.participatesInAutomaticAllocation,
+                      subcategory.systemKey == systemKey else { return nil }
 
                 let minimumTarget = minimumFloorForRebalance(for: subcategory)
                 let allocated = allocatedBySubcategoryID[subcategory.id, default: 0]
@@ -370,6 +384,7 @@ final class BudgetAllocationEngine {
         allocatedBySubcategoryID: [UUID: Double]
     ) -> [NeedEntry] {
         category.subcategories.compactMap { subcategory in
+            guard subcategory.participatesInAutomaticAllocation else { return nil }
             let minimumTarget = minimumFloorForRebalance(for: subcategory)
             guard minimumTarget > 0 else { return nil }
 
@@ -393,6 +408,7 @@ final class BudgetAllocationEngine {
     ) {
         while amount > 0.0001 {
             let candidates: [WeightedCandidate] = category.subcategories.compactMap { subcategory in
+                guard subcategory.participatesInAutomaticAllocation else { return nil }
                 let weight = max(0, subcategory.percentage)
                 guard weight > 0 else { return nil }
 
@@ -460,6 +476,36 @@ final class BudgetAllocationEngine {
             needs: lowNeeds,
             allocatedBySubcategoryID: &allocatedBySubcategoryID,
             onAllocate: onAllocate
+        )
+    }
+
+    private func distributeIncomeAcrossMinimums(
+        amount: inout Double,
+        categoryType: ExpenseCategoryType,
+        needs: [NeedEntry],
+        allocatedBySubcategoryID: inout [UUID: Double]
+    ) {
+        let highNeeds = needs.filter { $0.priority == highPriorityRaw }
+        let lowerPriorityNeeds = needs.filter { $0.priority != highPriorityRaw }
+        let highPriorityNeed = highNeeds.reduce(0) { $0 + $1.need }
+
+        if categoryType == .essentials,
+           !highNeeds.isEmpty,
+           !lowerPriorityNeeds.isEmpty,
+           highPriorityNeed >= amount - 0.0001 {
+            // Avoid starving food, health and other mandatory living cards.
+            allocateGroup(
+                amount: &amount,
+                needs: needs,
+                allocatedBySubcategoryID: &allocatedBySubcategoryID
+            )
+            return
+        }
+
+        distributeAmount(
+            amount: &amount,
+            across: needs,
+            allocatedBySubcategoryID: &allocatedBySubcategoryID
         )
     }
 

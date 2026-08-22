@@ -6,6 +6,7 @@ struct CategoryHeaderView: View {
     let categoryRemaining: Double
     let categoryMonthlyExpense: Double
     let categoryMonthlyIncome: Double
+    let categoryPreviousMonthBalance: Double
     let isExpanded: Bool
     let useCompactLayout: Bool
     let onTap: () -> Void
@@ -54,17 +55,17 @@ struct CategoryHeaderView: View {
             Spacer(minLength: 8)
 
             VStack(alignment: .trailing, spacing: 6) {
-                Text("+ \(currency(categoryMonthlyIncome))")
+                Text("Доход: + \(currency(categoryMonthlyIncome))")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.positive)
+
+                Text("Остаток: \(currency(categoryPreviousMonthBalance))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Text("- \(currency(categoryMonthlyExpense))")
+                Text("Расход: - \(currency(categoryMonthlyExpense))")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Text("Дефицит: -\(currency(category.deficitAmount))")
-                    .font(.caption)
-                    .foregroundColor(category.deficitAmount > 0 ? .red : .secondary)
+                    .foregroundStyle(AppTheme.negative)
             }
 
             Image(systemName: isExpanded ? "chevron.up" : "chevron.down")

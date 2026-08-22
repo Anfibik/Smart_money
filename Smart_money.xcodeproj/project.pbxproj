@@ -18,6 +18,15 @@
 		797B8287527E51477530AD99 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D6C56C36F70846C13E836257 /* XCTest.framework */; };
 		7C160A4D8DD400E7FB2141FB /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DE928F04FA626936D204C8C /* Foundation.framework */; };
 		8B1646BD2C951951E1BEE230 /* BudgetAllocationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F69A833A769D5551D00E9C0F /* BudgetAllocationEngine.swift */; };
+		9F1000000000000000000011 /* FreeCapitalCoveragePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F1000000000000000000001 /* FreeCapitalCoveragePolicy.swift */; };
+		9F1000000000000000000012 /* SystemCardCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F1000000000000000000002 /* SystemCardCatalog.swift */; };
+		9F2000000000000000000011 /* CurrencyInputFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F2000000000000000000001 /* CurrencyInputFormatter.swift */; };
+		9F2000000000000000000012 /* Smart_moneyTests/CurrencyInputFormatterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F2000000000000000000002 /* Smart_moneyTests/CurrencyInputFormatterTests.swift */; };
+		9F3000000000000000000011 /* Smart_moneyTests/ManualCurrencyTransferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F3000000000000000000001 /* Smart_moneyTests/ManualCurrencyTransferTests.swift */; };
+		9F4000000000000000000011 /* Smart_moneyTests/StartOnboardingCapitalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F4000000000000000000001 /* Smart_moneyTests/StartOnboardingCapitalTests.swift */; };
+		9F5000000000000000000011 /* Smart_moneyTests/ExpenseFundingPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F5000000000000000000001 /* Smart_moneyTests/ExpenseFundingPreviewTests.swift */; };
+		9F6000000000000000000011 /* Smart_moneyTests/AppPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F6000000000000000000001 /* Smart_moneyTests/AppPerformanceTests.swift */; };
+		9F7000000000000000000011 /* Smart_moneyTests/HistoryPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F7000000000000000000001 /* Smart_moneyTests/HistoryPresentationTests.swift */; };
 		D59408438CAE607A2E27861B /* Subcategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30426740402C6030D9761AB /* Subcategory.swift */; };
 		FF92C2D40D418C772B6AEA21 /* ExpenseCategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84F789F08C8A61DA8D593CAE /* ExpenseCategory.swift */; };
 /* End PBXBuildFile section */
@@ -44,6 +53,15 @@
 		5DE928F04FA626936D204C8C /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		84F789F08C8A61DA8D593CAE /* ExpenseCategory.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpenseCategory.swift; path = App/Models/ExpenseCategory.swift; sourceTree = SOURCE_ROOT; };
 		8B3556A7656E084760AE49C9 /* BudgetSettings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BudgetSettings.swift; path = App/Models/BudgetSettings.swift; sourceTree = SOURCE_ROOT; };
+		9F1000000000000000000001 /* FreeCapitalCoveragePolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = FreeCapitalCoveragePolicy.swift; path = App/Models/FreeCapitalCoveragePolicy.swift; sourceTree = SOURCE_ROOT; };
+		9F1000000000000000000002 /* SystemCardCatalog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SystemCardCatalog.swift; path = App/Models/SystemCardCatalog.swift; sourceTree = SOURCE_ROOT; };
+		9F2000000000000000000001 /* CurrencyInputFormatter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = CurrencyInputFormatter.swift; path = App/Resources/Formatting/CurrencyInputFormatter.swift; sourceTree = SOURCE_ROOT; };
+		9F2000000000000000000002 /* Smart_moneyTests/CurrencyInputFormatterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Smart_moneyTests/CurrencyInputFormatterTests.swift; sourceTree = "<group>"; };
+		9F3000000000000000000001 /* Smart_moneyTests/ManualCurrencyTransferTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Smart_moneyTests/ManualCurrencyTransferTests.swift; sourceTree = "<group>"; };
+		9F4000000000000000000001 /* Smart_moneyTests/StartOnboardingCapitalTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Smart_moneyTests/StartOnboardingCapitalTests.swift; sourceTree = "<group>"; };
+		9F5000000000000000000001 /* Smart_moneyTests/ExpenseFundingPreviewTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Smart_moneyTests/ExpenseFundingPreviewTests.swift; sourceTree = "<group>"; };
+		9F6000000000000000000001 /* Smart_moneyTests/AppPerformanceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Smart_moneyTests/AppPerformanceTests.swift; sourceTree = "<group>"; };
+		9F7000000000000000000001 /* Smart_moneyTests/HistoryPresentationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Smart_moneyTests/HistoryPresentationTests.swift; sourceTree = "<group>"; };
 		A4EA6E222F4122E2007853A7 /* Smart_money.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Smart_money.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C30426740402C6030D9761AB /* Subcategory.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Subcategory.swift; path = App/Models/Subcategory.swift; sourceTree = SOURCE_ROOT; };
 		D6C56C36F70846C13E836257 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = System/Library/Frameworks/XCTest.framework; sourceTree = "<group>"; };
@@ -91,6 +109,15 @@
 				05B1C5DE8C7A4B7DA2A65A04 /* BudgetHistoryStorage.swift */,
 				05B1C5DE8C7A4B7DA2A65A02 /* BudgetStatisticsService.swift */,
 				C30426740402C6030D9761AB /* Subcategory.swift */,
+				9F1000000000000000000001 /* FreeCapitalCoveragePolicy.swift */,
+				9F1000000000000000000002 /* SystemCardCatalog.swift */,
+				9F2000000000000000000001 /* CurrencyInputFormatter.swift */,
+				9F2000000000000000000002 /* Smart_moneyTests/CurrencyInputFormatterTests.swift */,
+				9F3000000000000000000001 /* Smart_moneyTests/ManualCurrencyTransferTests.swift */,
+				9F4000000000000000000001 /* Smart_moneyTests/StartOnboardingCapitalTests.swift */,
+				9F5000000000000000000001 /* Smart_moneyTests/ExpenseFundingPreviewTests.swift */,
+				9F6000000000000000000001 /* Smart_moneyTests/AppPerformanceTests.swift */,
+				9F7000000000000000000001 /* Smart_moneyTests/HistoryPresentationTests.swift */,
 				F69A833A769D5551D00E9C0F /* BudgetAllocationEngine.swift */,
 			);
 			name = Smart_moneyTests;
@@ -240,6 +267,15 @@
 				05B1C5DE8C7A4B7DA2A65B04 /* BudgetHistoryStorage.swift in Sources */,
 				05B1C5DE8C7A4B7DA2A65B02 /* BudgetStatisticsService.swift in Sources */,
 				D59408438CAE607A2E27861B /* Subcategory.swift in Sources */,
+				9F1000000000000000000011 /* FreeCapitalCoveragePolicy.swift in Sources */,
+				9F1000000000000000000012 /* SystemCardCatalog.swift in Sources */,
+				9F2000000000000000000011 /* CurrencyInputFormatter.swift in Sources */,
+				9F2000000000000000000012 /* Smart_moneyTests/CurrencyInputFormatterTests.swift in Sources */,
+				9F3000000000000000000011 /* Smart_moneyTests/ManualCurrencyTransferTests.swift in Sources */,
+				9F4000000000000000000011 /* Smart_moneyTests/StartOnboardingCapitalTests.swift in Sources */,
+				9F5000000000000000000011 /* Smart_moneyTests/ExpenseFundingPreviewTests.swift in Sources */,
+				9F6000000000000000000011 /* Smart_moneyTests/AppPerformanceTests.swift in Sources */,
+				9F7000000000000000000011 /* Smart_moneyTests/HistoryPresentationTests.swift in Sources */,
 				8B1646BD2C951951E1BEE230 /* BudgetAllocationEngine.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -266,6 +302,7 @@
 		026A28FFAD5A0557C1D1A8B4 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleExecutable = "$(EXECUTABLE_NAME)";
@@ -275,6 +312,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Smart_money.app/Smart_money";
 			};
 			name = Debug;
 		};
@@ -468,6 +506,7 @@
 		AC1A60EAAD689DA949CE049E /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleExecutable = "$(EXECUTABLE_NAME)";
@@ -477,6 +516,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Smart_money.app/Smart_money";
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;

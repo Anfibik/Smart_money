@@ -6,6 +6,8 @@ enum BudgetHistoryEventType: String, Codable, CaseIterable, Hashable {
     case transferToFreeCapital
     case transferFromFreeCapital
     case categoryReallocation
+    case manualCardDeposit
+    case currencyConversion
 
     var title: String {
         switch self {
@@ -19,6 +21,10 @@ enum BudgetHistoryEventType: String, Codable, CaseIterable, Hashable {
             return "Пополнение из Свободного капитала"
         case .categoryReallocation:
             return "Внутренний перевод"
+        case .manualCardDeposit:
+            return "Ручное пополнение"
+        case .currencyConversion:
+            return "Конвертация в Свободный капитал"
         }
     }
 
@@ -34,6 +40,10 @@ enum BudgetHistoryEventType: String, Codable, CaseIterable, Hashable {
             return "arrow.down.left.circle.fill"
         case .categoryReallocation:
             return "arrow.left.arrow.right.circle.fill"
+        case .manualCardDeposit:
+            return "plus.circle.fill"
+        case .currencyConversion:
+            return "arrow.triangle.2.circlepath"
         }
     }
 
@@ -41,14 +51,14 @@ enum BudgetHistoryEventType: String, Codable, CaseIterable, Hashable {
         switch self {
         case .income, .expense:
             return true
-        case .transferToFreeCapital, .transferFromFreeCapital, .categoryReallocation:
+        case .transferToFreeCapital, .transferFromFreeCapital, .categoryReallocation, .manualCardDeposit, .currencyConversion:
             return false
         }
     }
 
     var isTransfer: Bool {
         switch self {
-        case .transferToFreeCapital, .transferFromFreeCapital, .categoryReallocation:
+        case .transferToFreeCapital, .transferFromFreeCapital, .categoryReallocation, .manualCardDeposit, .currencyConversion:
             return true
         case .income, .expense:
             return false
@@ -70,6 +80,7 @@ struct BudgetHistoryEvent: Identifiable, Codable, Hashable {
     let counterpartyNameSnapshot: String?
     let affectsStatistics: Bool
     let undoDelta: BudgetOperationDelta?
+    let parentEventID: UUID?
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -85,6 +96,7 @@ struct BudgetHistoryEvent: Identifiable, Codable, Hashable {
         case counterpartyNameSnapshot
         case affectsStatistics
         case undoDelta
+        case parentEventID
     }
 
     init(
@@ -100,7 +112,8 @@ struct BudgetHistoryEvent: Identifiable, Codable, Hashable {
         iconNameSnapshot: String? = nil,
         counterpartyNameSnapshot: String? = nil,
         affectsStatistics: Bool? = nil,
-        undoDelta: BudgetOperationDelta? = nil
+        undoDelta: BudgetOperationDelta? = nil,
+        parentEventID: UUID? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -115,6 +128,7 @@ struct BudgetHistoryEvent: Identifiable, Codable, Hashable {
         self.counterpartyNameSnapshot = counterpartyNameSnapshot
         self.affectsStatistics = affectsStatistics ?? type.affectsStatisticsByDefault
         self.undoDelta = undoDelta
+        self.parentEventID = parentEventID
     }
 
     init(from decoder: Decoder) throws {
@@ -132,17 +146,22 @@ struct BudgetHistoryEvent: Identifiable, Codable, Hashable {
         counterpartyNameSnapshot = try container.decodeIfPresent(String.self, forKey: .counterpartyNameSnapshot)
         affectsStatistics = try container.decodeIfPresent(Bool.self, forKey: .affectsStatistics) ?? type.affectsStatisticsByDefault
         undoDelta = try container.decodeIfPresent(BudgetOperationDelta.self, forKey: .undoDelta)
+        parentEventID = try container.decodeIfPresent(UUID.self, forKey: .parentEventID)
     }
 
     var canUndo: Bool {
         undoDelta != nil
     }
 
+    var isLinkedInternalMovement: Bool {
+        parentEventID != nil
+    }
+
     var displayTitle: String {
         switch type {
         case .expense:
             return subcategoryNameSnapshot ?? type.title
-        case .income, .transferToFreeCapital, .transferFromFreeCapital, .categoryReallocation:
+        case .income, .transferToFreeCapital, .transferFromFreeCapital, .categoryReallocation, .manualCardDeposit, .currencyConversion:
             return type.title
         }
     }
@@ -153,8 +172,18 @@ struct BudgetHistoryEvent: Identifiable, Codable, Hashable {
             return categoryTitleSnapshot
         case .income:
             return nil
-        case .transferToFreeCapital, .transferFromFreeCapital:
+        case .transferToFreeCapital, .manualCardDeposit:
             return subcategoryNameSnapshot
+        case .transferFromFreeCapital:
+            if let card = subcategoryNameSnapshot, let result = counterpartyNameSnapshot {
+                return "\(card) • \(result)"
+            }
+            return subcategoryNameSnapshot ?? counterpartyNameSnapshot
+        case .currencyConversion:
+            if let card = subcategoryNameSnapshot, let result = counterpartyNameSnapshot {
+                return "\(card) • \(result)"
+            }
+            return subcategoryNameSnapshot ?? counterpartyNameSnapshot
         case .categoryReallocation:
             if let from = subcategoryNameSnapshot, let to = counterpartyNameSnapshot {
                 return "\(from) -> \(to)"
@@ -168,6 +197,82 @@ struct BudgetHistoryEvent: Identifiable, Codable, Hashable {
             return iconNameSnapshot
         }
         return type.defaultIconName
+    }
+}
+
+struct BudgetHistoryPresentationEntry: Identifiable, Hashable {
+    let event: BudgetHistoryEvent
+    let internalMovementEventIDs: [UUID]
+
+    var id: UUID { event.id }
+    var hasInternalMovements: Bool { !internalMovementEventIDs.isEmpty }
+}
+
+enum BudgetHistoryPresentation {
+    static func entries(from events: [BudgetHistoryEvent]) -> [BudgetHistoryPresentationEntry] {
+        let sortedEvents = events.sorted { $0.createdAt > $1.createdAt }
+        let eventIDs = Set(sortedEvents.map(\.id))
+        let explicitChildren = sortedEvents.reduce(into: [UUID: [BudgetHistoryEvent]]()) { result, event in
+            guard let parentEventID = event.parentEventID, eventIDs.contains(parentEventID) else {
+                return
+            }
+            result[parentEventID, default: []].append(event)
+        }
+        let explicitlyHiddenIDs = Set(explicitChildren.values.flatMap { $0.map(\.id) })
+        let legacyChildren = legacyInternalMovements(in: sortedEvents)
+        let legacyHiddenIDs = Set(legacyChildren.values.flatMap { $0 })
+
+        return sortedEvents.compactMap { event in
+            guard !explicitlyHiddenIDs.contains(event.id), !legacyHiddenIDs.contains(event.id) else {
+                return nil
+            }
+
+            let explicitIDs = explicitChildren[event.id, default: []].map(\.id)
+            let internalIDs = explicitIDs + legacyChildren[event.id, default: []]
+            return BudgetHistoryPresentationEntry(
+                event: event,
+                internalMovementEventIDs: internalIDs
+            )
+        }
+    }
+
+    static func entry(
+        for eventID: UUID,
+        in events: [BudgetHistoryEvent]
+    ) -> BudgetHistoryPresentationEntry? {
+        entries(from: events).first { $0.event.id == eventID }
+    }
+
+    private static func legacyInternalMovements(
+        in sortedEvents: [BudgetHistoryEvent]
+    ) -> [UUID: [UUID]] {
+        var result: [UUID: [UUID]] = [:]
+
+        for (index, event) in sortedEvents.enumerated() where event.type == .expense {
+            var childIndex = index + 1
+            while childIndex < sortedEvents.count {
+                let candidate = sortedEvents[childIndex]
+                guard isLegacyInternalMovement(candidate, for: event) else { break }
+                result[event.id, default: []].append(candidate.id)
+                childIndex += 1
+            }
+        }
+
+        return result
+    }
+
+    private static func isLegacyInternalMovement(
+        _ candidate: BudgetHistoryEvent,
+        for expense: BudgetHistoryEvent
+    ) -> Bool {
+        guard candidate.parentEventID == nil,
+              candidate.type == .categoryReallocation,
+              candidate.categoryType == expense.categoryType,
+              candidate.counterpartyNameSnapshot == expense.subcategoryNameSnapshot else {
+            return false
+        }
+
+        return abs(candidate.createdAt.timeIntervalSince(expense.createdAt)) <= 5
     }
 }
 

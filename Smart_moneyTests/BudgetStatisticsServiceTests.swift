@@ -41,6 +41,18 @@ final class BudgetStatisticsServiceTests: XCTestCase {
                 subcategoryID: foodID,
                 subcategoryNameSnapshot: "Питание",
                 iconNameSnapshot: "fork.knife"
+            ),
+            BudgetHistoryEvent(
+                createdAt: makeDate(year: 2026, month: 3, day: 7, hour: 9),
+                type: .currencyConversion,
+                amount: 100,
+                currencyCode: "USD",
+                categoryType: .savings,
+                categoryTitleSnapshot: "Финансы",
+                subcategoryID: UUID(),
+                subcategoryNameSnapshot: "Валюта",
+                iconNameSnapshot: "dollarsign.arrow.circlepath",
+                counterpartyNameSnapshot: "4 150,00 ₴, курс 41.5"
             )
         ]
 
@@ -53,12 +65,12 @@ final class BudgetStatisticsServiceTests: XCTestCase {
         )
         let summary = service.buildSummary(from: periodEvents)
 
-        XCTAssertEqual(periodEvents.count, 3)
+        XCTAssertEqual(periodEvents.count, 4)
         XCTAssertEqual(summary.totalIncome, 1000, accuracy: 0.0001)
         XCTAssertEqual(summary.totalExpense, 200, accuracy: 0.0001)
         XCTAssertEqual(summary.netResult, 800, accuracy: 0.0001)
-        XCTAssertEqual(summary.transferOperationsCount, 1)
-        XCTAssertEqual(summary.operationCount, 3)
+        XCTAssertEqual(summary.transferOperationsCount, 2)
+        XCTAssertEqual(summary.operationCount, 4)
         XCTAssertEqual(summary.expenseByCategory.first?.title, "Основные")
         XCTAssertEqual(summary.expenseSubcategoriesByCategory.first?.title, "Основные")
         XCTAssertEqual(summary.expenseSubcategoriesByCategory.first?.subcategories.first?.title, "Питание")

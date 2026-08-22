@@ -11,6 +11,8 @@ struct SubcategoryAllocation: Identifiable, Hashable {
     let minLimit: Double?
     let maxLimit: Double?
     let priority: Int
+    let fundingMode: SubcategoryFundingMode
+    let balanceCurrencyCode: String?
     let percentage: Double
     let allocatedAmount: Double
     let spentAmount: Double
@@ -21,6 +23,10 @@ struct SubcategoryAllocation: Identifiable, Hashable {
     let monthlyOtherIncomingAmount: Double
     let monthlyExpenseAmount: Double
     let monthlyOtherOutgoingAmount: Double
+
+    var participatesInAutomaticAllocation: Bool {
+        fundingMode == .automatic
+    }
 }
 
 struct CategoryAllocation: Identifiable, Hashable {

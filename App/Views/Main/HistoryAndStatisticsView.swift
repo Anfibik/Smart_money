@@ -83,19 +83,19 @@ struct HistoryAndStatisticsView: View {
                 summaryCard(
                     title: "Доходы",
                     value: currency(viewModel.summary.totalIncome),
-                    tint: .green,
+                    tint: AppTheme.positive,
                     footnote: "\(viewModel.summary.incomeOperationsCount) операций"
                 )
                 summaryCard(
                     title: "Расходы",
                     value: currency(viewModel.summary.totalExpense),
-                    tint: .red,
+                    tint: AppTheme.negative,
                     footnote: "\(viewModel.summary.expenseOperationsCount) операций"
                 )
                 summaryCard(
                     title: "Результат",
                     value: currency(viewModel.summary.netResult),
-                    tint: viewModel.summary.netResult >= 0 ? .blue : .orange,
+                    tint: viewModel.summary.netResult >= 0 ? AppTheme.info : AppTheme.warning,
                     footnote: "Доходы минус расходы"
                 )
                 summaryCard(
@@ -131,7 +131,7 @@ struct HistoryAndStatisticsView: View {
                         title: line.title,
                         subtitle: percentageText(line.share),
                         amount: line.amount,
-                        tint: .orange
+                        tint: AppTheme.warning
                     )
                 }
             }
@@ -180,11 +180,11 @@ struct HistoryAndStatisticsView: View {
                                 .padding(.vertical, 8)
                                 .background(
                                     Capsule()
-                                        .fill(viewModel.entryFilter == filter ? Color.accentColor.opacity(0.18) : AppTheme.cardBackground)
+                                        .fill(viewModel.entryFilter == filter ? AppTheme.accent.opacity(0.18) : AppTheme.cardBackground)
                                 )
                                 .overlay(
                                     Capsule()
-                                        .stroke(viewModel.entryFilter == filter ? Color.accentColor : Color.clear, lineWidth: 1)
+                                        .stroke(viewModel.entryFilter == filter ? AppTheme.accent : Color.clear, lineWidth: 1)
                                 )
                         }
                         .buttonStyle(.plain)
@@ -316,7 +316,7 @@ struct HistoryAndStatisticsView: View {
                         title: line.title,
                         subtitle: percentageText(line.share),
                         amount: line.amount,
-                        tint: .pink,
+                        tint: AppTheme.highlight,
                         iconName: line.iconName
                     )
                 }
@@ -437,24 +437,24 @@ struct HistoryAndStatisticsView: View {
     private func eventAmountText(for event: BudgetHistoryEvent) -> String {
         let prefix: String
         switch event.type {
-        case .income:
+        case .income, .manualCardDeposit:
             prefix = "+"
         case .expense:
             prefix = "-"
-        case .transferToFreeCapital, .transferFromFreeCapital, .categoryReallocation:
+        case .transferToFreeCapital, .transferFromFreeCapital, .categoryReallocation, .currencyConversion:
             prefix = ""
         }
-        return "\(prefix)\(currency(event.amount))"
+        return "\(prefix)\(AppCurrencyFormatter.string(event.amount, currencyCode: event.currencyCode))"
     }
 
     private func eventColor(for event: BudgetHistoryEvent) -> Color {
         switch event.type {
-        case .income:
-            return .green
+        case .income, .manualCardDeposit:
+            return AppTheme.positive
         case .expense:
-            return .red
-        case .transferToFreeCapital, .transferFromFreeCapital, .categoryReallocation:
-            return .blue
+            return AppTheme.negative
+        case .transferToFreeCapital, .transferFromFreeCapital, .categoryReallocation, .currencyConversion:
+            return AppTheme.info
         }
     }
 }
@@ -465,21 +465,33 @@ struct BudgetHistoryView: View {
     @State private var isShowingRevertConfirmation = false
     @State private var isShowingRevertFailure = false
 
-    private var recentEvents: [BudgetHistoryEvent] {
-        Array(budgetViewModel.historyEvents.prefix(5))
+    private var editablePeriodEntries: [BudgetHistoryPresentationEntry] {
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: Date())
+        guard
+            let yesterdayStart = calendar.date(byAdding: .day, value: -1, to: todayStart),
+            let tomorrowStart = calendar.date(byAdding: .day, value: 1, to: todayStart)
+        else {
+            return []
+        }
+
+        return BudgetHistoryPresentation.entries(from: budgetViewModel.historyEvents)
+            .filter { entry in
+                entry.event.createdAt >= yesterdayStart && entry.event.createdAt < tomorrowStart
+            }
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if recentEvents.isEmpty {
-                    emptyBlock(text: "Операций пока нет.")
+                if editablePeriodEntries.isEmpty {
+                    emptyBlock(text: "За сегодня и вчера операций нет.")
                 } else {
                     VStack(spacing: 0) {
-                        ForEach(Array(recentEvents.enumerated()), id: \.element.id) { index, event in
-                            historyRow(for: event)
+                        ForEach(Array(editablePeriodEntries.enumerated()), id: \.element.id) { index, entry in
+                            historyRow(for: entry)
 
-                            if index < recentEvents.count - 1 {
+                            if index < editablePeriodEntries.count - 1 {
                                 Divider()
                             }
                         }
@@ -513,14 +525,26 @@ struct BudgetHistoryView: View {
         }
     }
 
-    private func historyRow(for event: BudgetHistoryEvent) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: event.displayIconName)
-                .font(.title3)
-                .foregroundStyle(eventColor(for: event))
-                .frame(width: 34, height: 34)
-                .background(eventColor(for: event).opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+    private func historyRow(for entry: BudgetHistoryPresentationEntry) -> some View {
+        let event = entry.event
+
+        return HStack(spacing: 12) {
+            VStack(spacing: 3) {
+                Image(systemName: event.displayIconName)
+                    .font(.title3)
+                    .foregroundStyle(eventColor(for: event))
+                    .frame(width: 34, height: 34)
+                    .background(eventColor(for: event).opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                if entry.hasInternalMovements {
+                    Image(systemName: "arrow.left.arrow.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(AppTheme.info)
+                        .accessibilityLabel("В операции были внутренние перемещения")
+                }
+            }
+            .frame(width: 34)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(event.displayTitle)
@@ -552,7 +576,7 @@ struct BudgetHistoryView: View {
                     .frame(width: 32, height: 32)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(event.canUndo ? Color.red : Color.secondary)
+            .foregroundStyle(event.canUndo ? AppTheme.negative : Color.secondary)
             .disabled(!event.canUndo)
             .accessibilityLabel("Удалить операцию")
         }
@@ -577,24 +601,24 @@ struct BudgetHistoryView: View {
     private func eventAmountText(for event: BudgetHistoryEvent) -> String {
         let prefix: String
         switch event.type {
-        case .income:
+        case .income, .manualCardDeposit:
             prefix = "+"
         case .expense:
             prefix = "-"
-        case .transferToFreeCapital, .transferFromFreeCapital, .categoryReallocation:
+        case .transferToFreeCapital, .transferFromFreeCapital, .categoryReallocation, .currencyConversion:
             prefix = ""
         }
-        return "\(prefix)\(currency(event.amount))"
+        return "\(prefix)\(AppCurrencyFormatter.string(event.amount, currencyCode: event.currencyCode))"
     }
 
     private func eventColor(for event: BudgetHistoryEvent) -> Color {
         switch event.type {
-        case .income:
-            return .green
+        case .income, .manualCardDeposit:
+            return AppTheme.positive
         case .expense:
-            return .red
-        case .transferToFreeCapital, .transferFromFreeCapital, .categoryReallocation:
-            return .blue
+            return AppTheme.negative
+        case .transferToFreeCapital, .transferFromFreeCapital, .categoryReallocation, .currencyConversion:
+            return AppTheme.info
         }
     }
 }

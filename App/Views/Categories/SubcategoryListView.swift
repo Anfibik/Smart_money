@@ -7,7 +7,7 @@ struct SubcategoryListView: View {
 
     @State private var selectedSubcategory: SubcategoryAllocation?
     @State private var expenseInput: String = ""
-    @FocusState private var isExpenseFieldFocused: Bool
+    @State private var isExpenseFieldFocused = false
 
     private var currentCategory: CategoryAllocation? {
         budgetViewModel.distribution.categoryAllocations.first(where: { $0.type == categoryType })
@@ -60,14 +60,18 @@ struct SubcategoryListView: View {
                     Text(sub.name)
                         .font(.title3.bold())
 
-                    TextField("Введите расход", text: $expenseInput)
-                        .keyboardType(.decimalPad)
-                        .textFieldStyle(.roundedBorder)
-                        .focused($isExpenseFieldFocused)
+                    CurrencyInput(
+                        text: $expenseInput,
+                        placeholder: "Введите расход",
+                        currencyCode: currencyCode,
+                        externalFocus: $isExpenseFieldFocused
+                    )
 
                     Button("Сохранить расход") {
-                        let normalized = expenseInput.replacingOccurrences(of: ",", with: ".")
-                        let value = Double(normalized) ?? 0
+                        let value = CurrencyInputFormatter.value(
+                            from: expenseInput,
+                            allowsNegative: false
+                        )
                         budgetViewModel.addExpense(
                             categoryType: categoryType,
                             subcategoryID: sub.id,
@@ -90,12 +94,6 @@ struct SubcategoryListView: View {
                         }
                     }
 
-                    ToolbarItemGroup(placement: .keyboard) {
-                        Spacer()
-                        Button("Готово") {
-                            isExpenseFieldFocused = false
-                        }
-                    }
                 }
                 .onAppear {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {

@@ -53,6 +53,16 @@ struct CategoryAccordionView: View {
     let onDeleteSubcategory: (ExpenseCategoryType, UUID) -> Void
     let onWithdrawFunds: (ExpenseCategoryType, UUID, Double) -> Void
     let onDepositFunds: (ExpenseCategoryType, UUID, Double) -> Void
+    let onManualCardDeposit: (ExpenseCategoryType, UUID, Double) -> Void
+    let onManualCardDepositFromFreeCapital: (
+        ExpenseCategoryType,
+        UUID,
+        Double,
+        Double,
+        Double
+    ) -> Bool
+    let onUpdateManualCardCurrency: (ExpenseCategoryType, UUID, ForeignCurrencyType) -> Void
+    let onConvertManualCardToFreeCapital: (ExpenseCategoryType, UUID, Double, Double) -> Void
 
     @State private var expandedCategoryIDs: Set<UUID>
     @State private var expenseTarget: ExpenseTarget?
@@ -72,6 +82,10 @@ struct CategoryAccordionView: View {
     @State private var editIconName: String = SubcategoryIconCatalog.selectableSymbols.first ?? SubcategoryIconCatalog.fallbackSymbol
     @State private var withdrawAmountInput: String = ""
     @State private var depositAmountInput: String = ""
+    @State private var depositHryvniaAmountInput: String = ""
+    @State private var depositExchangeRateInput: String = ""
+    @State private var depositUsesFreeCapital = false
+    @State private var editForeignCurrency: ForeignCurrencyType = .usd
     @State private var suppressTapAfterLongPress: Bool = false
 
     init(
@@ -125,7 +139,17 @@ struct CategoryAccordionView: View {
         ) -> Void,
         onDeleteSubcategory: @escaping (ExpenseCategoryType, UUID) -> Void,
         onWithdrawFunds: @escaping (ExpenseCategoryType, UUID, Double) -> Void,
-        onDepositFunds: @escaping (ExpenseCategoryType, UUID, Double) -> Void
+        onDepositFunds: @escaping (ExpenseCategoryType, UUID, Double) -> Void,
+        onManualCardDeposit: @escaping (ExpenseCategoryType, UUID, Double) -> Void,
+        onManualCardDepositFromFreeCapital: @escaping (
+            ExpenseCategoryType,
+            UUID,
+            Double,
+            Double,
+            Double
+        ) -> Bool,
+        onUpdateManualCardCurrency: @escaping (ExpenseCategoryType, UUID, ForeignCurrencyType) -> Void,
+        onConvertManualCardToFreeCapital: @escaping (ExpenseCategoryType, UUID, Double, Double) -> Void
     ) {
         self.distribution = distribution
         self.currencyCode = currencyCode
@@ -144,6 +168,10 @@ struct CategoryAccordionView: View {
         self.onDeleteSubcategory = onDeleteSubcategory
         self.onWithdrawFunds = onWithdrawFunds
         self.onDepositFunds = onDepositFunds
+        self.onManualCardDeposit = onManualCardDeposit
+        self.onManualCardDepositFromFreeCapital = onManualCardDepositFromFreeCapital
+        self.onUpdateManualCardCurrency = onUpdateManualCardCurrency
+        self.onConvertManualCardToFreeCapital = onConvertManualCardToFreeCapital
 
         let essentialsID = distribution.categoryAllocations
             .first(where: { $0.type == .essentials })?
@@ -158,9 +186,18 @@ struct CategoryAccordionView: View {
     var body: some View {
         VStack(spacing: 8) {
             ForEach(distribution.categoryAllocations) { category in
-                let categoryRemaining = category.subcategoryAllocations.reduce(0) { $0 + $1.remainingAmount }
-                let categoryMonthlyIncome = category.subcategoryAllocations.reduce(0) { $0 + $1.monthlyIncomeDistributionAmount }
-                let categoryMonthlyExpense = category.subcategoryAllocations.reduce(0) { $0 + $1.monthlyExpenseAmount }
+                let automaticCards = category.subcategoryAllocations.filter(\.participatesInAutomaticAllocation)
+                let categoryRemaining = automaticCards.reduce(0) { $0 + $1.remainingAmount }
+                let categoryMonthlyIncome = automaticCards.reduce(0) { $0 + $1.monthlyIncomeAmount }
+                let categoryMonthlyExpense = automaticCards.reduce(0) { $0 + $1.monthlyExpenseAmount }
+                let categoryMonthlyOutgoing = automaticCards.reduce(0) { $0 + $1.monthlyOtherOutgoingAmount }
+                let categoryPreviousMonthBalance = max(
+                    0,
+                    categoryRemaining
+                        - categoryMonthlyIncome
+                        + categoryMonthlyExpense
+                        + categoryMonthlyOutgoing
+                )
                 let isCategoryExpanded = isExpanded(category.id)
 
                 VStack(spacing: 0) {
@@ -170,6 +207,7 @@ struct CategoryAccordionView: View {
                         categoryRemaining: categoryRemaining,
                         categoryMonthlyExpense: categoryMonthlyExpense,
                         categoryMonthlyIncome: categoryMonthlyIncome,
+                        categoryPreviousMonthBalance: categoryPreviousMonthBalance,
                         isExpanded: isCategoryExpanded,
                         useCompactLayout: hasExpandedCategory,
                         onTap: { toggle(categoryID: category.id) }
@@ -226,12 +264,71 @@ struct CategoryAccordionView: View {
                 expenseFundingStrategy
             )
 
+            let editTarget = target.editTarget
+            let availableForCard = maxAllowedPercentForEdit(target: editTarget)
+            let availableMoneyForCard = maxAllowedMoneyForEdit(target: editTarget)
+            let currentRemaining = currentRemainingForEdit(target: editTarget)
+            let currentMaxLimit = currentMaxLimitForEdit(target: editTarget)
+
             ExpenseSheetView(
                 target: target,
-                currencyCode: currencyCode,
-                bankAvailableAmount: bankAvailableAmount,
+                currencyCode: target.currencyCode,
+                currentCardAmount: currentRemaining,
+                bankAvailableAmount: target.isManualOnly ? 0 : bankAvailableAmount,
+                isManualOnly: target.isManualOnly,
                 coverageRequirement: coverageRequirement,
                 fundingPreview: fundingPreview,
+                managementDestination: EditSubcategorySheetView(
+                    target: editTarget,
+                    currencyCode: editTarget.currencyCode,
+                    bankAvailableAmount: bankAvailableAmount,
+                    availableForCard: availableForCard,
+                    availableMoneyForCard: availableMoneyForCard,
+                    currentRemaining: currentRemaining,
+                    currentMaxLimit: currentMaxLimit,
+                    isEmbeddedInNavigationStack: true,
+                    editNameInput: $editNameInput,
+                    editPercentInput: $editPercentInput,
+                    editMinAmountInput: $editMinAmountInput,
+                    editMaxAmountInput: $editMaxAmountInput,
+                    editIconName: $editIconName,
+                    withdrawAmountInput: $withdrawAmountInput,
+                    depositAmountInput: $depositAmountInput,
+                    depositHryvniaAmountInput: $depositHryvniaAmountInput,
+                    depositExchangeRateInput: $depositExchangeRateInput,
+                    depositUsesFreeCapital: $depositUsesFreeCapital,
+                    editForeignCurrency: $editForeignCurrency,
+                    canSave: canSaveEditedSubcategory(target: editTarget),
+                    onSave: {
+                        saveEditedSubcategory(target: editTarget, closesStandaloneSheet: false)
+                    },
+                    onWithdraw: {
+                        withdrawFromEditedSubcategory(target: editTarget)
+                    },
+                    onDeposit: {
+                        depositIntoEditedSubcategory(target: editTarget)
+                    },
+                    onCurrencyChange: { currency in
+                        onUpdateManualCardCurrency(
+                            editTarget.categoryType,
+                            editTarget.subcategoryID,
+                            currency
+                        )
+                    },
+                    onConvertToFreeCapital: { amount, exchangeRate in
+                        onConvertManualCardToFreeCapital(
+                            editTarget.categoryType,
+                            editTarget.subcategoryID,
+                            amount,
+                            exchangeRate
+                        )
+                    },
+                    onDelete: editTarget.isSystem ? nil : {
+                        onDeleteSubcategory(editTarget.categoryType, editTarget.subcategoryID)
+                        expenseTarget = nil
+                    },
+                    onCancel: {}
+                ),
                 expenseInput: $expenseInput,
                 fundingStrategy: $expenseFundingStrategy,
                 onPay: { amount, fundingStrategy in
@@ -244,6 +341,15 @@ struct CategoryAccordionView: View {
                 },
                 onManualForcedPay: { amount, allocations, fundingStrategy in
                     onPayExpenseWithManualForcedCoverage(target.categoryType, target.subcategoryID, amount, allocations, fundingStrategy)
+                    expenseTarget = nil
+                },
+                onConvertToFreeCapital: { amount, exchangeRate in
+                    onConvertManualCardToFreeCapital(
+                        target.categoryType,
+                        target.subcategoryID,
+                        amount,
+                        exchangeRate
+                    )
                     expenseTarget = nil
                 },
                 onCancel: {
@@ -294,12 +400,13 @@ struct CategoryAccordionView: View {
 
             EditSubcategorySheetView(
                 target: target,
-                currencyCode: currencyCode,
+                currencyCode: target.currencyCode,
                 bankAvailableAmount: bankAvailableAmount,
                 availableForCard: availableForCard,
                 availableMoneyForCard: availableMoneyForCard,
                 currentRemaining: currentRemaining,
                 currentMaxLimit: currentMaxLimit,
+                isEmbeddedInNavigationStack: false,
                 editNameInput: $editNameInput,
                 editPercentInput: $editPercentInput,
                 editMinAmountInput: $editMinAmountInput,
@@ -307,7 +414,11 @@ struct CategoryAccordionView: View {
                 editIconName: $editIconName,
                 withdrawAmountInput: $withdrawAmountInput,
                 depositAmountInput: $depositAmountInput,
-                canSave: canSaveEditedSubcategory,
+                depositHryvniaAmountInput: $depositHryvniaAmountInput,
+                depositExchangeRateInput: $depositExchangeRateInput,
+                depositUsesFreeCapital: $depositUsesFreeCapital,
+                editForeignCurrency: $editForeignCurrency,
+                canSave: canSaveEditedSubcategory(target: target),
                 onSave: {
                     saveEditedSubcategory(target: target)
                 },
@@ -316,6 +427,21 @@ struct CategoryAccordionView: View {
                 },
                 onDeposit: {
                     depositIntoEditedSubcategory(target: target)
+                },
+                onCurrencyChange: { currency in
+                    onUpdateManualCardCurrency(
+                        target.categoryType,
+                        target.subcategoryID,
+                        currency
+                    )
+                },
+                onConvertToFreeCapital: { amount, exchangeRate in
+                    onConvertManualCardToFreeCapital(
+                        target.categoryType,
+                        target.subcategoryID,
+                        amount,
+                        exchangeRate
+                    )
                 },
                 onDelete: target.isSystem ? nil : {
                     onDeleteSubcategory(target.categoryType, target.subcategoryID)
@@ -354,8 +480,10 @@ struct CategoryAccordionView: View {
             && (coverageRequirement?.canCover != false)
     }
 
-    private var canSaveEditedSubcategory: Bool {
-        guard let target = editSubcategoryTarget else { return false }
+    private func canSaveEditedSubcategory(target: EditSubcategoryTarget) -> Bool {
+        if target.isManualOnly {
+            return true
+        }
         let normalizedName = editNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedPercent = nonNegativeValue(from: editPercentInput)
         let availableForCard = maxAllowedPercentForEdit(target: target)
@@ -365,17 +493,26 @@ struct CategoryAccordionView: View {
     }
 
     private func openExpenseSheet(for categoryType: ExpenseCategoryType, subcategory: SubcategoryAllocation) {
+        let editTarget = prepareEditState(for: categoryType, subcategory: subcategory)
         expenseTarget = ExpenseTarget(
             categoryType: categoryType,
             subcategoryID: subcategory.id,
             subcategoryName: subcategory.name,
-            currentAmount: subcategory.remainingAmount
+            currencyCode: subcategory.balanceCurrencyCode ?? currencyCode,
+            editTarget: editTarget
         )
         expenseInput = ""
         expenseFundingStrategy = .categoryFirst
     }
 
     private func openEditSubcategorySheet(for categoryType: ExpenseCategoryType, subcategory: SubcategoryAllocation) {
+        editSubcategoryTarget = prepareEditState(for: categoryType, subcategory: subcategory)
+    }
+
+    private func prepareEditState(
+        for categoryType: ExpenseCategoryType,
+        subcategory: SubcategoryAllocation
+    ) -> EditSubcategoryTarget {
         editNameInput = subcategory.name
         editIconName = subcategory.iconName
         editPercentInput = String(format: "%.2f", subcategory.basePercentage).replacingOccurrences(of: ".00", with: "")
@@ -391,12 +528,18 @@ struct CategoryAccordionView: View {
         }
         withdrawAmountInput = ""
         depositAmountInput = ""
-        editSubcategoryTarget = EditSubcategoryTarget(
+        depositHryvniaAmountInput = ""
+        depositExchangeRateInput = ""
+        depositUsesFreeCapital = false
+        editForeignCurrency = ForeignCurrencyType(rawValue: subcategory.balanceCurrencyCode ?? "") ?? .usd
+        return EditSubcategoryTarget(
             subcategoryID: subcategory.id,
             categoryType: categoryType,
             categoryTitle: categoryType.title,
             subcategoryName: subcategory.name,
-            isSystem: subcategory.isSystem
+            isSystem: subcategory.isSystem,
+            fundingMode: subcategory.fundingMode,
+            currencyCode: subcategory.balanceCurrencyCode ?? currencyCode
         )
     }
 
@@ -491,7 +634,18 @@ struct CategoryAccordionView: View {
         addSubcategoryTarget = nil
     }
 
-    private func saveEditedSubcategory(target: EditSubcategoryTarget) {
+    private func saveEditedSubcategory(
+        target: EditSubcategoryTarget,
+        closesStandaloneSheet: Bool = true
+    ) {
+        if target.isManualOnly {
+            onUpdateManualCardCurrency(target.categoryType, target.subcategoryID, editForeignCurrency)
+            if closesStandaloneSheet {
+                editSubcategoryTarget = nil
+            }
+            return
+        }
+
         let name = editNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
         let mainPercent = nonNegativeValue(from: editPercentInput)
         let availableForCard = maxAllowedPercentForEdit(target: target)
@@ -512,7 +666,9 @@ struct CategoryAccordionView: View {
             maxAmount,
             .low
         )
-        editSubcategoryTarget = nil
+        if closesStandaloneSheet {
+            editSubcategoryTarget = nil
+        }
     }
 
     private func withdrawFromEditedSubcategory(target: EditSubcategoryTarget) {
@@ -529,6 +685,34 @@ struct CategoryAccordionView: View {
     private func depositIntoEditedSubcategory(target: EditSubcategoryTarget) {
         let requested = nonNegativeValue(from: depositAmountInput)
         guard requested > 0 else { return }
+
+        if target.isManualOnly {
+            if depositUsesFreeCapital {
+                let hryvniaAmount = nonNegativeValue(from: depositHryvniaAmountInput)
+                let exchangeRate = nonNegativeValue(from: depositExchangeRateInput)
+                guard exchangeRate > 0,
+                      hryvniaAmount > 0,
+                      hryvniaAmount <= bankAvailableAmount + 0.0001 else {
+                    return
+                }
+
+                let succeeded = onManualCardDepositFromFreeCapital(
+                    target.categoryType,
+                    target.subcategoryID,
+                    requested,
+                    hryvniaAmount,
+                    exchangeRate
+                )
+                guard succeeded else { return }
+                depositAmountInput = ""
+                depositHryvniaAmountInput = ""
+                return
+            }
+
+            onManualCardDeposit(target.categoryType, target.subcategoryID, requested)
+            depositAmountInput = ""
+            return
+        }
 
         let currentRemaining = currentRemainingForEdit(target: target)
         let maxLimit = currentMaxLimitForEdit(target: target)
@@ -547,8 +731,7 @@ struct CategoryAccordionView: View {
     }
 
     private func nonNegativeValue(from input: String) -> Double {
-        let normalized = input.replacingOccurrences(of: ",", with: ".")
-        return max(0, Double(normalized) ?? 0)
+        CurrencyInputFormatter.value(from: input, allowsNegative: false)
     }
 
     private func maxAllowedPercentForAdd(categoryType: ExpenseCategoryType) -> Double {
@@ -567,10 +750,11 @@ struct CategoryAccordionView: View {
 
     private func maxAllowedMoneyForAdd(categoryType: ExpenseCategoryType) -> Double {
         guard let category = distribution.categoryAllocations.first(where: { $0.type == categoryType }) else { return 0 }
-        let categoryRemainingAmount = category.subcategoryAllocations.reduce(0.0) { partialResult, subcategory in
+        let automaticCards = category.subcategoryAllocations.filter(\.participatesInAutomaticAllocation)
+        let categoryRemainingAmount = automaticCards.reduce(0.0) { partialResult, subcategory in
             partialResult + subcategory.remainingAmount
         }
-        let committedMinimums = category.subcategoryAllocations.reduce(0.0) { partialResult, subcategory in
+        let committedMinimums = automaticCards.reduce(0.0) { partialResult, subcategory in
             partialResult + minimumCommitment(for: subcategory, categoryAmount: categoryRemainingAmount)
         }
         let freeInsideCategory = max(0, categoryRemainingAmount - committedMinimums)
@@ -579,10 +763,11 @@ struct CategoryAccordionView: View {
 
     private func maxAllowedMoneyForEdit(target: EditSubcategoryTarget) -> Double {
         guard let category = distribution.categoryAllocations.first(where: { $0.type == target.categoryType }) else { return 0 }
-        let categoryRemainingAmount = category.subcategoryAllocations.reduce(0.0) { partialResult, subcategory in
+        let automaticCards = category.subcategoryAllocations.filter(\.participatesInAutomaticAllocation)
+        let categoryRemainingAmount = automaticCards.reduce(0.0) { partialResult, subcategory in
             partialResult + subcategory.remainingAmount
         }
-        let committedMinimumsWithoutCurrent = category.subcategoryAllocations
+        let committedMinimumsWithoutCurrent = automaticCards
             .filter { $0.id != target.subcategoryID }
             .reduce(0.0) { partialResult, subcategory in
                 partialResult + minimumCommitment(for: subcategory, categoryAmount: categoryRemainingAmount)
@@ -627,7 +812,12 @@ struct ExpenseTarget: Identifiable {
     let categoryType: ExpenseCategoryType
     let subcategoryID: UUID
     let subcategoryName: String
-    let currentAmount: Double
+    let currencyCode: String
+    let editTarget: EditSubcategoryTarget
+
+    var isManualOnly: Bool {
+        editTarget.isManualOnly
+    }
 
     var id: UUID { subcategoryID }
 }
@@ -644,6 +834,12 @@ struct EditSubcategoryTarget: Identifiable {
     let categoryTitle: String
     let subcategoryName: String
     let isSystem: Bool
+    let fundingMode: SubcategoryFundingMode
+    let currencyCode: String
+
+    var isManualOnly: Bool {
+        fundingMode == .manualOnly
+    }
 
     var id: UUID { subcategoryID }
 }
