@@ -127,7 +127,7 @@ struct SubcategoryCardView: View {
 
     @ViewBuilder
     private var systemLockBadge: some View {
-        if subcategory.isSystem {
+        if subcategory.isRequired {
             Image(systemName: "lock.fill")
                 .font(.system(size: 8, weight: .bold))
                 .foregroundStyle(.secondary)
@@ -137,7 +137,7 @@ struct SubcategoryCardView: View {
                         .fill(AppTheme.cardBackground.opacity(0.92))
                 )
                 .padding(5)
-                .accessibilityLabel("Системная карточка")
+                .accessibilityLabel("Обязательная карточка")
         }
     }
 

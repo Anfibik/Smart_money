@@ -55,6 +55,79 @@ final class HistoryPresentationTests: XCTestCase {
         XCTAssertTrue(viewModel.historyEvents.isEmpty)
     }
 
+    func testHistoryRevertUsesLIFOOrder() throws {
+        let targetID = UUID()
+        let donorID = UUID()
+        let viewModel = makeViewModel(
+            targetID: targetID,
+            donorID: donorID,
+            income: 0
+        )
+
+        viewModel.addIncome(1_000)
+        let incomeEvent = try XCTUnwrap(viewModel.historyEvents.first { $0.type == .income })
+
+        viewModel.addExpense(
+            categoryType: .essentials,
+            subcategoryID: targetID,
+            amount: 700,
+            fundingStrategy: .categoryFirst
+        )
+        let expenseEvent = try XCTUnwrap(viewModel.historyEvents.first { $0.type == .expense })
+        let distributionBeforeRejectedRevert = viewModel.distribution
+
+        XCTAssertFalse(viewModel.canRevertHistoryEvent(id: incomeEvent.id))
+        XCTAssertFalse(viewModel.revertHistoryEvent(id: incomeEvent.id))
+        XCTAssertEqual(viewModel.distribution, distributionBeforeRejectedRevert)
+
+        XCTAssertTrue(viewModel.canRevertHistoryEvent(id: expenseEvent.id))
+        XCTAssertTrue(viewModel.revertHistoryEvent(id: expenseEvent.id))
+        XCTAssertTrue(viewModel.canRevertHistoryEvent(id: incomeEvent.id))
+        XCTAssertTrue(viewModel.revertHistoryEvent(id: incomeEvent.id))
+
+        XCTAssertTrue(viewModel.historyEvents.isEmpty)
+        XCTAssertEqual(viewModel.distribution.income, 0, accuracy: 0.0001)
+        XCTAssertEqual(viewModel.distribution.bankAmount, 0, accuracy: 0.0001)
+    }
+
+    func testHistoryRevertRemainsAvailableForTodayAndYesterdayOnly() throws {
+        let calendar = Calendar.current
+        let now = Date()
+        let todayStart = calendar.startOfDay(for: now)
+        let yesterdayStart = try XCTUnwrap(
+            calendar.date(byAdding: .day, value: -1, to: todayStart)
+        )
+        let twoDaysAgoStart = try XCTUnwrap(
+            calendar.date(byAdding: .day, value: -2, to: todayStart)
+        )
+        let yesterdayEvent = Smart_money.BudgetHistoryEvent(
+            createdAt: yesterdayStart.addingTimeInterval(12 * 60 * 60),
+            type: .income,
+            amount: 0,
+            currencyCode: "UAH",
+            undoDelta: Smart_money.BudgetOperationDelta()
+        )
+        let olderEvent = Smart_money.BudgetHistoryEvent(
+            createdAt: twoDaysAgoStart.addingTimeInterval(12 * 60 * 60),
+            type: .income,
+            amount: 0,
+            currencyCode: "UAH",
+            undoDelta: Smart_money.BudgetOperationDelta()
+        )
+        let viewModel = makeViewModel(
+            targetID: UUID(),
+            donorID: UUID(),
+            income: 0,
+            historyEvents: [olderEvent, yesterdayEvent]
+        )
+
+        XCTAssertTrue(viewModel.canRevertHistoryEvent(id: yesterdayEvent.id, now: now))
+        XCTAssertFalse(viewModel.canRevertHistoryEvent(id: olderEvent.id, now: now))
+        XCTAssertTrue(viewModel.revertHistoryEvent(id: yesterdayEvent.id, now: now))
+        XCTAssertFalse(viewModel.canRevertHistoryEvent(id: olderEvent.id, now: now))
+        XCTAssertFalse(viewModel.revertHistoryEvent(id: olderEvent.id, now: now))
+    }
+
     func testStandaloneTransferRemainsVisible() {
         let transfer = Smart_money.BudgetHistoryEvent(
             type: .categoryReallocation,
@@ -103,7 +176,9 @@ final class HistoryPresentationTests: XCTestCase {
 
     private func makeViewModel(
         targetID: UUID,
-        donorID: UUID
+        donorID: UUID,
+        income: Double = 1_000,
+        historyEvents: [Smart_money.BudgetHistoryEvent] = []
     ) -> Smart_money.BudgetViewModel {
         let target = Smart_money.Subcategory(
             id: targetID,
@@ -128,9 +203,14 @@ final class HistoryPresentationTests: XCTestCase {
         defaults.removePersistentDomain(forName: suiteName)
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(suiteName, isDirectory: true)
+        let historyStorage = Smart_money.BudgetHistoryStorage(
+            directoryURL: directory,
+            fileName: "history.json"
+        )
+        historyStorage.replaceAll(historyEvents)
 
         return Smart_money.BudgetViewModel(
-            income: 1_000,
+            income: income,
             settings: Smart_money.BudgetSettings(
                 categories: [category],
                 currencyCode: "UAH"
@@ -140,10 +220,7 @@ final class HistoryPresentationTests: XCTestCase {
                 storageKey: "budget-state"
             ),
             allocationEngine: Smart_money.BudgetAllocationEngine(),
-            historyStorage: Smart_money.BudgetHistoryStorage(
-                directoryURL: directory,
-                fileName: "history.json"
-            )
+            historyStorage: historyStorage
         )
     }
 

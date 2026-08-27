@@ -1,5 +1,81 @@
 import XCTest
 final class BudgetAllocationEngineTests: XCTestCase {
+    func testRequiredStateMigratesByCatalogAvailability() throws {
+        let recommendedJSON = """
+        {"name":"Хобби","isSystem":true,"systemKey":"hobby","percentage":5}
+        """.data(using: .utf8)!
+        let requiredJSON = """
+        {"name":"Жилье","isSystem":true,"systemKey":"housing","percentage":25}
+        """.data(using: .utf8)!
+
+        let recommended = try JSONDecoder().decode(Subcategory.self, from: recommendedJSON)
+        let required = try JSONDecoder().decode(Subcategory.self, from: requiredJSON)
+
+        XCTAssertFalse(recommended.isRequired)
+        XCTAssertTrue(required.isRequired)
+    }
+
+    func testRecommendationTemplateRestoresCatalogIdentityAndSavedParameters() {
+        let template = RecommendedCardTemplate(
+            systemKey: .goal,
+            categoryType: .savings,
+            name: "Цель",
+            iconName: "target",
+            description: "Крупная покупка",
+            percentage: 17,
+            minLimit: 500,
+            maxLimit: 750_000,
+            priority: SubcategoryPriorityLevel.medium.rawValue,
+            fundingMode: .automatic,
+            balanceCurrencyCode: nil
+        )
+
+        let card = template.makeSubcategory()
+
+        XCTAssertTrue(card.isSystem)
+        XCTAssertFalse(card.isRequired)
+        XCTAssertEqual(card.name, "Цель")
+        XCTAssertEqual(card.iconName, "target")
+        XCTAssertEqual(card.percentage, 17, accuracy: 0.0001)
+        XCTAssertEqual(card.minLimit, 500)
+        XCTAssertEqual(card.maxLimit, 750_000)
+    }
+
+    func testLegacySettingsPreserveActiveRecommendationParametersAsTemplate() throws {
+        let legacyJSON = """
+        {
+          "currencyCode":"UAH",
+          "categories":[{
+            "id":"00000000-0000-0000-0000-000000000001",
+            "type":"savings",
+            "percentage":25,
+            "subcategories":[{
+              "id":"00000000-0000-0000-0000-000000000002",
+              "name":"Цель",
+              "isSystem":true,
+              "systemKey":"goal",
+              "iconName":"target",
+              "percentage":17,
+              "minLimit":500,
+              "maxLimit":750000,
+              "priority":2,
+              "fundingMode":"automatic",
+              "spentAmount":0
+            }]
+          }]
+        }
+        """.data(using: .utf8)!
+
+        let settings = try JSONDecoder().decode(BudgetSettings.self, from: legacyJSON)
+        let goal = try XCTUnwrap(
+            settings.recommendationTemplates.first(where: { $0.systemKey == .goal })
+        )
+
+        XCTAssertEqual(goal.percentage, 17, accuracy: 0.0001)
+        XCTAssertEqual(goal.minLimit, 500)
+        XCTAssertEqual(goal.maxLimit, 750_000)
+    }
+
     func testGoalSystemKeyProvidesStableMetadata() {
         XCTAssertEqual(SystemSubcategoryKey.goal.defaultName, "Цель")
         XCTAssertEqual(SystemSubcategoryKey.goal.defaultIconName, "target")

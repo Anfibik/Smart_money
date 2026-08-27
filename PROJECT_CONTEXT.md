@@ -298,20 +298,20 @@ remainingFreeCapital = positiveCapital - initialDistributionAmount
 
 ### Текущее состояние бюджета
 
-`PersistenceService` кодирует `BudgetPersistedState` в JSON и хранит `Data` в `UserDefaults` по ключу `budget_state_v2`.
+`PersistenceService` кодирует `BudgetPersistedState` в JSON и хранит `Data` в `UserDefaults` по ключу `budget_state_v2`. Предыдущая корректная версия хранится отдельно в `budget_state_v2_backup`.
 
 Сохраняются настройки, суммы по UUID карточек, Свободный капитал, месячные входящие/исходящие трекеры и baseline категорий. Запись debounced на 0,35 секунды; при уходе scene из `.active` вызывается принудительный flush.
 
 ### История
 
-`BudgetHistoryStorage` хранит JSON-файл `budget_history_v1.json` в `Application Support/<bundle-id>/`, также с debounced atomic write и flush при смене scene phase.
+`BudgetHistoryStorage` хранит JSON-файл `budget_history_v1.json` в `Application Support/<bundle-id>/`, а предыдущую корректную версию — в `budget_history_v1.json.backup`. Запись остаётся debounced и atomic, с flush при смене scene phase.
 
 ### Прочие ключи UserDefaults
 
 - `has_completed_start_onboarding_v2` — завершение онбординга;
 - `app_install.*` — дата, версия и build первого запуска.
 
-Ошибки encode/decode/file IO сейчас тихо игнорируются; пользовательского error reporting или recovery UI нет.
+Если основной budget snapshot или история не декодируются, приложение автоматически восстанавливает данные из backup и показывает уведомление. Если повреждены обе копии, запись блокируется, чтобы пустое состояние не перезаписало данные; пользователь получает явный экран для сброса бюджета либо только истории.
 
 ## 13. Карта ключевых файлов
 
@@ -390,13 +390,13 @@ xcodebuild test \
 
 Это не список подтверждённых пользовательских багов, а технические зоны риска перед релизом:
 
-- Выполнить все 61 теста на конкретном iOS Simulator; сейчас подтверждена компиляция test bundle, а не зелёный runtime run.
+- Все 61 теста выполнены на iPhone 17 Simulator с iOS 26.4: 0 failures. В набор входят сценарии восстановления budget snapshot и истории из backup и защиты от перезаписи обеих повреждённых копий.
 - Провести ручной smoke test полного пути: чистая установка → onboarding → доход → расход всеми способами → валютные операции → undo → background/перезапуск → reset.
 - Проверить миграцию реальных данных из предыдущей версии `budget_state_v2` и старой истории, особенно после добавления `systemKey`, funding mode и новых полей delta.
 - Проверить целогривневые onboarding-расчёты на границах и сохранение общей денежной суммы.
 - Проверить статистику после undo, смены месяца и валютных событий.
 - `BudgetViewModel` (~2250 строк), `StartOnboardingFlowView` (~1050) и `CategoryAccordionView` (~845) крупные; предрелизные исправления лучше делать локально, без необязательного масштабного рефакторинга.
-- В persistence ошибки проглатываются; перед production-релизом стоит решить, нужен ли telemetry/logging/recovery.
+- Backup/recovery для persistence реализован. Ошибки записи всё ещё не отправляются в telemetry, поэтому наблюдаемость редких file IO сбоев остаётся отдельной будущей задачей.
 - Интерфейс русскоязычный и принудительно тёмный; полноценной локализации и светлой темы нет.
 - Deployment target iOS 26.2 очень высокий — подтвердить, что это сознательное продуктовое ограничение.
 - В рабочем дереве большой незакоммиченный набор: перед разделением задач важно сначала создать безопасную контрольную точку/commit только с явного согласия владельца.

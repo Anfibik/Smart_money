@@ -7,6 +7,7 @@ struct AddSubcategorySheetView: View {
     let freePercent: Double
     let freeMoney: Double
     let coverageRequirement: CategoryCoverageRequirement?
+    let recommendedCards: [RecommendedCardTemplate]
 
     @Binding var subcategoryNameInput: String
     @Binding var subcategoryPercentInput: String
@@ -18,11 +19,13 @@ struct AddSubcategorySheetView: View {
     let onCreate: () -> Void
     let onCreateWithAutomaticForcedCoverage: () -> Void
     let onCreateWithManualForcedCoverage: ([UUID: Double]) -> Void
+    let onAddRecommendedCard: (SystemSubcategoryKey) -> Void
     let onCancel: () -> Void
 
     @FocusState private var isNameFocused: Bool
     @State private var isCoverageChoicePresented = false
     @State private var isManualCoveragePresented = false
+    @State private var addedRecommendationKeys: Set<SystemSubcategoryKey> = []
 
     private var requestedPercent: Double {
         nonNegativeValue(from: subcategoryPercentInput)
@@ -61,6 +64,13 @@ struct AddSubcategorySheetView: View {
                     Text("Пользовательские карточки всегда создаются с низким приоритетом.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    if !visibleRecommendedCards.isEmpty {
+                        recommendedCardsSection
+                        Divider()
+                        Text("Создать свою карточку")
+                            .font(.headline)
+                    }
 
                     SubcategoryIconPickerView(selectedIconName: $subcategoryIconName)
 
@@ -108,7 +118,7 @@ struct AddSubcategorySheetView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Отмена", action: onCancel)
+                    Button("Назад", action: onCancel)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
@@ -127,8 +137,10 @@ struct AddSubcategorySheetView: View {
                 if subcategoryIconName.isEmpty {
                     subcategoryIconName = SubcategoryIconCatalog.selectableSymbols.first ?? SubcategoryIconCatalog.fallbackSymbol
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    isNameFocused = true
+                if recommendedCards.isEmpty {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        isNameFocused = true
+                    }
                 }
             }
             .confirmationDialog("Покрытие внутри категории", isPresented: $isCoverageChoicePresented, titleVisibility: .visible) {
@@ -168,6 +180,47 @@ struct AddSubcategorySheetView: View {
 
     private func nonNegativeValue(from input: String) -> Double {
         CurrencyInputFormatter.value(from: input, allowsNegative: false)
+    }
+
+    private var visibleRecommendedCards: [RecommendedCardTemplate] {
+        recommendedCards.filter { !addedRecommendationKeys.contains($0.systemKey) }
+    }
+
+    private var recommendedCardsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Готовые карточки")
+                .font(.headline)
+            Text("Добавляются с параметрами, рассчитанными при стартовой настройке.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            ForEach(visibleRecommendedCards) { card in
+                Button {
+                    onAddRecommendedCard(card.systemKey)
+                    addedRecommendationKeys.insert(card.systemKey)
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: card.iconName)
+                            .frame(width: 28)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(card.name)
+                                .font(.subheadline.weight(.semibold))
+                            Text(card.description)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                        Spacer()
+                        Image(systemName: "plus.circle.fill")
+                            .foregroundStyle(AppTheme.accent)
+                    }
+                    .padding(12)
+                    .background(AppTheme.cardBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 
     private func formattedPercent(_ value: Double) -> String {

@@ -342,11 +342,20 @@ struct EditSubcategorySheetView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            SubcategoryIconPickerView(selectedIconName: $editIconName)
-            TextField("Название*", text: $editNameInput)
-                .textFieldStyle(.roundedBorder)
-                .disabled(target.isSystem)
-                .focused($isNameFocused)
+            if target.isSystem {
+                HStack(spacing: 10) {
+                    Image(systemName: editIconName)
+                        .frame(width: 28)
+                    Text(editNameInput)
+                        .font(.subheadline.weight(.semibold))
+                }
+                .accessibilityElement(children: .combine)
+            } else {
+                SubcategoryIconPickerView(selectedIconName: $editIconName)
+                TextField("Название*", text: $editNameInput)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($isNameFocused)
+            }
             TextField("Процент*", text: $editPercentInput)
                 .keyboardType(.decimalPad)
                 .textFieldStyle(.roundedBorder)

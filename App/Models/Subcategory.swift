@@ -245,6 +245,7 @@ struct Subcategory: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String
     var isSystem: Bool
+    var isRequired: Bool
     var systemKey: SystemSubcategoryKey?
     var iconName: String
 
@@ -276,6 +277,7 @@ struct Subcategory: Identifiable, Codable, Hashable {
         id: UUID = UUID(),
         name: String,
         isSystem: Bool = false,
+        isRequired: Bool? = nil,
         systemKey: SystemSubcategoryKey? = nil,
         iconName: String = SubcategoryIconCatalog.fallbackSymbol,
         percentage: Double,
@@ -291,6 +293,10 @@ struct Subcategory: Identifiable, Codable, Hashable {
         self.name = name
         self.isSystem = isSystem
         let resolvedSystemKey = systemKey ?? SystemSubcategoryKey.inferred(from: name, isSystem: isSystem)
+        self.isRequired = isRequired ?? Self.defaultRequiredState(
+            isSystem: isSystem,
+            systemKey: resolvedSystemKey
+        )
         self.systemKey = resolvedSystemKey
         let normalizedIcon = SubcategoryIconCatalog.normalized(iconName)
         if normalizedIcon == SubcategoryIconCatalog.fallbackSymbol,
@@ -320,6 +326,7 @@ struct Subcategory: Identifiable, Codable, Hashable {
         case id
         case name
         case isSystem
+        case isRequired
         case systemKey
         case iconName
         case percentage
@@ -340,6 +347,8 @@ struct Subcategory: Identifiable, Codable, Hashable {
         isSystem = try container.decodeIfPresent(Bool.self, forKey: .isSystem) ?? false
         systemKey = try container.decodeIfPresent(SystemSubcategoryKey.self, forKey: .systemKey)
             ?? SystemSubcategoryKey.inferred(from: name, isSystem: isSystem)
+        isRequired = try container.decodeIfPresent(Bool.self, forKey: .isRequired)
+            ?? Self.defaultRequiredState(isSystem: isSystem, systemKey: systemKey)
         percentage = try container.decodeIfPresent(Double.self, forKey: .percentage) ?? 0
         fixedMinimumPercentage = try container.decodeIfPresent(Double.self, forKey: .fixedMinimumPercentage)
         minLimit = try container.decodeIfPresent(Double.self, forKey: .minLimit)
@@ -374,6 +383,7 @@ struct Subcategory: Identifiable, Codable, Hashable {
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)
         try container.encode(isSystem, forKey: .isSystem)
+        try container.encode(isRequired, forKey: .isRequired)
         try container.encodeIfPresent(systemKey, forKey: .systemKey)
         try container.encode(iconName, forKey: .iconName)
         try container.encode(percentage, forKey: .percentage)
@@ -384,6 +394,15 @@ struct Subcategory: Identifiable, Codable, Hashable {
         try container.encode(fundingMode, forKey: .fundingMode)
         try container.encodeIfPresent(balanceCurrencyCode, forKey: .balanceCurrencyCode)
         try container.encode(spentAmount, forKey: .spentAmount)
+    }
+
+    private static func defaultRequiredState(
+        isSystem: Bool,
+        systemKey: SystemSubcategoryKey?
+    ) -> Bool {
+        guard isSystem else { return false }
+        guard let systemKey else { return true }
+        return SystemCardCatalog.standard.definition(for: systemKey).availability != .recommended
     }
 }
 

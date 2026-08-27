@@ -31,6 +31,9 @@ struct ContentView: View {
                                 currencyCode: budgetViewModel.settings.currencyCode,
                                 lastIncomeAmount: budgetViewModel.lastIncomeAmount,
                                 bankAvailableAmount: budgetViewModel.bankAvailableAmount,
+                                availableRecommendedCards: { categoryType in
+                                    budgetViewModel.availableRecommendedCards(for: categoryType)
+                                },
                                 onPayExpense: { categoryType, subcategoryID, amount, fundingStrategy in
                                     budgetViewModel.addExpense(
                                         categoryType: categoryType,
@@ -129,6 +132,9 @@ struct ContentView: View {
                                         subcategoryID: subcategoryID
                                     )
                                 },
+                                onAddRecommendedSubcategory: { systemKey in
+                                    budgetViewModel.addRecommendedSubcategory(systemKey: systemKey)
+                                },
                                 onWithdrawFunds: { categoryType, subcategoryID, amount in
                                     budgetViewModel.transferFromSubcategoryToBank(
                                         categoryType: categoryType,
@@ -202,6 +208,34 @@ struct ContentView: View {
                     .frame(maxHeight: .infinity)
                     .offset(x: isSideMenuOpen ? 0 : (geometry.size.width * 0.50) + 24)
                     .shadow(radius: isSideMenuOpen ? 8 : 0)
+
+                    if budgetViewModel.storageRecoveryReport.hasUnrecoverableData {
+                        Color.black.opacity(0.72)
+                            .ignoresSafeArea()
+
+                        StorageRecoveryFailureView(
+                            report: budgetViewModel.storageRecoveryReport,
+                            onDiscardDamagedData: resolveUnrecoverableStorage
+                        )
+                        .padding(24)
+                        .frame(
+                            maxWidth: .infinity,
+                            maxHeight: .infinity,
+                            alignment: .center
+                        )
+                    } else if budgetViewModel.storageRecoveryReport.hasRecoveredData {
+                        StorageRecoveryNoticeView(
+                            message: budgetViewModel.storageRecoveryReport.recoveryNoticeMessage,
+                            onDismiss: budgetViewModel.acknowledgeStorageRecovery
+                        )
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .frame(
+                            maxWidth: .infinity,
+                            maxHeight: .infinity,
+                            alignment: .top
+                        )
+                    }
                 }
                 .animation(.easeInOut(duration: 0.22), value: isSideMenuOpen)
             }
@@ -364,6 +398,10 @@ struct ContentView: View {
         guard !didBootstrapInitialSetup else { return }
         didBootstrapInitialSetup = true
 
+        guard !budgetViewModel.storageRecoveryReport.hasUnrecoverableData else {
+            return
+        }
+
         if hasCompletedStartOnboarding {
             return
         }
@@ -375,5 +413,115 @@ struct ContentView: View {
         budgetViewModel.resetToInitialSystemState()
         hasCompletedStartOnboarding = false
         isShowingInitialSetup = true
+    }
+
+    private func resolveUnrecoverableStorage() {
+        closeSideMenu()
+        let requiresOnboarding = budgetViewModel.discardUnrecoverableStoredData()
+        guard requiresOnboarding else { return }
+
+        hasCompletedStartOnboarding = false
+        isShowingInitialSetup = true
+    }
+}
+
+private extension StorageRecoveryReport {
+    var recoveryNoticeMessage: String {
+        switch (budgetState, history) {
+        case (.recoveredFromBackup, .recoveredFromBackup):
+            return "Бюджет и история восстановлены из резервных копий."
+        case (.recoveredFromBackup, _):
+            return "Бюджет восстановлен из резервной копии."
+        case (_, .recoveredFromBackup):
+            return "История операций восстановлена из резервной копии."
+        default:
+            return "Данные восстановлены из резервной копии."
+        }
+    }
+
+    var failureTitle: String {
+        switch (budgetState, history) {
+        case (.unrecoverable, .unrecoverable):
+            return "Не удалось восстановить данные"
+        case (.unrecoverable, _):
+            return "Не удалось прочитать бюджет"
+        default:
+            return "Не удалось прочитать историю"
+        }
+    }
+
+    var failureMessage: String {
+        if budgetState == .unrecoverable {
+            return "Основная и резервная копии бюджета повреждены. Приложение не перезаписывало их пустыми данными. Для продолжения потребуется удалить сохранённый бюджет и историю, затем пройти настройку заново."
+        }
+
+        return "Основная и резервная копии истории повреждены. Сам бюджет сохранён и не будет сброшен. Можно удалить только повреждённую историю."
+    }
+
+    var discardButtonTitle: String {
+        budgetState == .unrecoverable
+            ? "Сбросить и настроить заново"
+            : "Удалить повреждённую историю"
+    }
+}
+
+private struct StorageRecoveryNoticeView: View {
+    let message: String
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.counterclockwise.circle.fill")
+                .foregroundStyle(AppTheme.info)
+
+            Text(message)
+                .font(.subheadline.weight(.medium))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.bold))
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Закрыть сообщение")
+        }
+        .padding(12)
+        .background(AppTheme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .shadow(color: .black.opacity(0.22), radius: 10, y: 4)
+    }
+}
+
+private struct StorageRecoveryFailureView: View {
+    let report: StorageRecoveryReport
+    let onDiscardDamagedData: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "externaldrive.fill.badge.exclamationmark")
+                .font(.system(size: 42))
+                .foregroundStyle(AppTheme.negative)
+
+            Text(report.failureTitle)
+                .font(.title3.weight(.bold))
+                .multilineTextAlignment(.center)
+
+            Text(report.failureMessage)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            Button(role: .destructive, action: onDiscardDamagedData) {
+                Text(report.discardButtonTitle)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(22)
+        .frame(maxWidth: 420)
+        .background(AppTheme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .shadow(color: .black.opacity(0.3), radius: 16, y: 6)
     }
 }

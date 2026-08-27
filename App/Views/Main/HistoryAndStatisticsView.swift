@@ -489,7 +489,11 @@ struct BudgetHistoryView: View {
                 } else {
                     VStack(spacing: 0) {
                         ForEach(Array(editablePeriodEntries.enumerated()), id: \.element.id) { index, entry in
-                            historyRow(for: entry)
+                            historyRow(
+                                for: entry,
+                                canRevert: index == 0
+                                    && budgetViewModel.canRevertHistoryEvent(id: entry.event.id)
+                            )
 
                             if index < editablePeriodEntries.count - 1 {
                                 Divider()
@@ -521,11 +525,14 @@ struct BudgetHistoryView: View {
         .alert("Операцию нельзя удалить", isPresented: $isShowingRevertFailure) {
             Button("ОК", role: .cancel) {}
         } message: {
-            Text("Для этой записи нет данных отката или связанные карточки уже изменены.")
+            Text("Удалять операции можно только по очереди, начиная с последней операции за сегодня или вчера.")
         }
     }
 
-    private func historyRow(for entry: BudgetHistoryPresentationEntry) -> some View {
+    private func historyRow(
+        for entry: BudgetHistoryPresentationEntry,
+        canRevert: Bool
+    ) -> some View {
         let event = entry.event
 
         return HStack(spacing: 12) {
@@ -576,9 +583,14 @@ struct BudgetHistoryView: View {
                     .frame(width: 32, height: 32)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(event.canUndo ? AppTheme.negative : Color.secondary)
-            .disabled(!event.canUndo)
+            .foregroundStyle(canRevert ? AppTheme.negative : Color.secondary)
+            .disabled(!canRevert)
             .accessibilityLabel("Удалить операцию")
+            .accessibilityHint(
+                canRevert
+                    ? "Отменяет последнюю операцию"
+                    : "Сначала отмените более поздние операции"
+            )
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

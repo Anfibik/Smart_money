@@ -77,6 +77,40 @@ struct ExpenseFundingPreview: Hashable {
     }
 }
 
+enum AddSubcategoryError: String, Error, Identifiable {
+    case invalidParameters
+    case categoryNotFound
+    case percentageLimitExceeded
+    case insufficientCoverage
+    case coverageSelectionRequired
+    case invalidManualAllocation
+    case incompleteCoverage
+    case invariantViolation
+
+    var id: String { rawValue }
+
+    var userMessage: String {
+        switch self {
+        case .invalidParameters:
+            return "Проверьте название, процент и минимальную сумму карточки."
+        case .categoryNotFound:
+            return "Категория больше недоступна. Закройте форму и попробуйте снова."
+        case .percentageLimitExceeded:
+            return "Свободный процент категории изменился. Укажите меньшее значение."
+        case .insufficientCoverage:
+            return "Доступных денег уже недостаточно для покрытия минимальной суммы."
+        case .coverageSelectionRequired:
+            return "Выберите автоматическое или ручное покрытие минимальной суммы."
+        case .invalidManualAllocation:
+            return "Ручное покрытие должно точно соответствовать недостающей сумме."
+        case .incompleteCoverage:
+            return "Не удалось полностью покрыть минимальную сумму карточки."
+        case .invariantViolation:
+            return "Операция отменена, потому что могла нарушить денежный баланс."
+        }
+    }
+}
+
 private struct BudgetOperationStateSnapshot {
     let income: Double
     let bankBalance: Double
@@ -89,6 +123,64 @@ private struct BudgetOperationStateSnapshot {
     let categoryTargetBaselineByID: [UUID: Double]
 }
 
+private struct BudgetTransactionSnapshot {
+    let settings: BudgetSettings
+    let operationState: BudgetOperationStateSnapshot
+    let lastIncomeAmount: Double
+    let lastIncomeToBankByCategoryID: [UUID: Double]
+    let lastBankAutoDistributedBySubcategoryID: [UUID: Double]
+    let monthlyTrackingMonthKey: String
+    let currentMonthExpenseBySubcategoryIDCache: [UUID: Double]
+    let currentMonthExpenseCacheKey: String
+}
+
+private struct HistoryRevertContext {
+    let relatedEventIDs: Set<UUID>
+    let events: [BudgetHistoryEvent]
+}
+
+enum StorageStartupState: Equatable {
+    case missing
+    case loaded
+    case recoveredFromBackup
+    case unrecoverable
+
+    init(_ status: BudgetStateLoadStatus) {
+        switch status {
+        case .missing: self = .missing
+        case .loaded: self = .loaded
+        case .recoveredFromBackup: self = .recoveredFromBackup
+        case .unrecoverable: self = .unrecoverable
+        }
+    }
+
+    init(_ status: BudgetHistoryLoadStatus) {
+        switch status {
+        case .missing: self = .missing
+        case .loaded: self = .loaded
+        case .recoveredFromBackup: self = .recoveredFromBackup
+        case .unrecoverable: self = .unrecoverable
+        }
+    }
+}
+
+struct StorageRecoveryReport: Equatable {
+    var budgetState: StorageStartupState
+    var history: StorageStartupState
+
+    var hasRecoveredData: Bool {
+        budgetState == .recoveredFromBackup || history == .recoveredFromBackup
+    }
+
+    var hasUnrecoverableData: Bool {
+        budgetState == .unrecoverable || history == .unrecoverable
+    }
+
+    var requiresBudgetReset: Bool {
+        budgetState == .unrecoverable
+    }
+}
+
 @MainActor
 final class BudgetViewModel: ObservableObject {
     @Published private(set) var income: Double
@@ -96,6 +188,7 @@ final class BudgetViewModel: ObservableObject {
     @Published private(set) var settings: BudgetSettings
     @Published private(set) var distribution: BudgetDistribution
     @Published private(set) var historyEvents: [BudgetHistoryEvent]
+    @Published private(set) var storageRecoveryReport: StorageRecoveryReport
 
     private var allocatedBySubcategoryID: [UUID: Double] = [:]
     private var categoryTargetBaselineByID: [UUID: Double] = [:]
@@ -121,12 +214,19 @@ final class BudgetViewModel: ObservableObject {
         allocationEngine: BudgetAllocationEngine,
         historyStorage: BudgetHistoryStorage
     ) {
+        let historyLoadResult = historyStorage.loadEventsWithRecovery()
+        let budgetLoadResult = persistenceService.loadBudgetStateWithRecovery()
+
         self.persistenceService = persistenceService
         self.allocationEngine = allocationEngine
         self.historyStorage = historyStorage
         self.income = 0
         self.settings = settings
-        self.historyEvents = historyStorage.loadEvents().sorted { $0.createdAt > $1.createdAt }
+        self.historyEvents = historyLoadResult.events.sorted { $0.createdAt > $1.createdAt }
+        self.storageRecoveryReport = StorageRecoveryReport(
+            budgetState: StorageStartupState(budgetLoadResult.status),
+            history: StorageStartupState(historyLoadResult.status)
+        )
         self.distribution = BudgetDistribution(
             income: 0,
             categoryAllocations: [],
@@ -146,7 +246,7 @@ final class BudgetViewModel: ObservableObject {
         syncLastIncomeToBankStorageWithSettings()
         syncLastBankAutoDistributionStorageWithSettings()
         syncMonthlyIncomeStorageWithSettings()
-        if let persistedState = persistenceService.loadBudgetState() {
+        if let persistedState = budgetLoadResult.state {
             restoreFromPersistedState(persistedState)
             recalculate(persistImmediately: true)
             return
@@ -267,39 +367,61 @@ final class BudgetViewModel: ObservableObject {
     func resetToInitialSystemState() {
         settings = BudgetSettings()
         resetMoneyData()
+        storageRecoveryReport = StorageRecoveryReport(
+            budgetState: .missing,
+            history: .missing
+        )
+    }
+
+    func acknowledgeStorageRecovery() {
+        if storageRecoveryReport.budgetState == .recoveredFromBackup {
+            storageRecoveryReport.budgetState = .loaded
+        }
+        if storageRecoveryReport.history == .recoveredFromBackup {
+            storageRecoveryReport.history = .loaded
+        }
     }
 
     @discardableResult
-    func revertHistoryEvent(id eventID: UUID) -> Bool {
-        guard let requestedEvent = historyEvents.first(where: { $0.id == eventID }) else {
-            return false
+    func discardUnrecoverableStoredData() -> Bool {
+        let requiresBudgetReset = storageRecoveryReport.requiresBudgetReset
+
+        if requiresBudgetReset {
+            resetToInitialSystemState()
+            return true
         }
 
-        let rootEventID = requestedEvent.parentEventID ?? requestedEvent.id
-        let presentationEntry = BudgetHistoryPresentation.entry(
-            for: rootEventID,
-            in: historyEvents
-        )
-        let relatedEventIDs = Set(
-            [rootEventID] + (presentationEntry?.internalMovementEventIDs ?? [])
-        )
-        let eventsToRevert = historyEvents.filter { relatedEventIDs.contains($0.id) }
-        guard !eventsToRevert.isEmpty, eventsToRevert.allSatisfy({ $0.undoDelta != nil }) else {
+        if storageRecoveryReport.history == .unrecoverable {
+            clearHistory()
+            storageRecoveryReport.history = .missing
+        }
+
+        return false
+    }
+
+    @discardableResult
+    func revertHistoryEvent(id eventID: UUID, now: Date = Date()) -> Bool {
+        guard let context = historyRevertContext(for: eventID, now: now) else {
             return false
         }
 
         let rollbackSnapshot = makeOperationSnapshot()
-        for event in eventsToRevert {
+        for event in context.events {
             guard let undoDelta = event.undoDelta, applyReverseOperationDelta(undoDelta) else {
                 restoreOperationSnapshot(rollbackSnapshot)
                 return false
             }
         }
 
-        for event in eventsToRevert {
+        guard hasValidMoneyInvariants() else {
+            restoreOperationSnapshot(rollbackSnapshot)
+            return false
+        }
+
+        for event in context.events {
             updateCurrentMonthExpenseCache(for: event, multiplier: -1)
         }
-        historyEvents.removeAll { relatedEventIDs.contains($0.id) }
+        historyEvents.removeAll { context.relatedEventIDs.contains($0.id) }
         historyStorage.scheduleReplaceAll(historyEvents.sorted { $0.createdAt < $1.createdAt })
         refreshLastIncomeAmountFromHistory()
         syncAllocationStorageWithSettings()
@@ -309,6 +431,49 @@ final class BudgetViewModel: ObservableObject {
         syncMonthlyIncomeStorageWithSettings()
         recalculate()
         return true
+    }
+
+    func canRevertHistoryEvent(id eventID: UUID, now: Date = Date()) -> Bool {
+        historyRevertContext(for: eventID, now: now) != nil
+    }
+
+    private func historyRevertContext(
+        for eventID: UUID,
+        now: Date = Date()
+    ) -> HistoryRevertContext? {
+        guard let requestedEvent = historyEvents.first(where: { $0.id == eventID }) else {
+            return nil
+        }
+
+        let rootEventID = requestedEvent.parentEventID ?? requestedEvent.id
+        guard let latestEntry = BudgetHistoryPresentation.entries(from: historyEvents).first,
+              latestEntry.event.id == rootEventID,
+              isInsideHistoryRevertWindow(latestEntry.event.createdAt, now: now) else {
+            return nil
+        }
+
+        let relatedEventIDs = Set(
+            [rootEventID] + latestEntry.internalMovementEventIDs
+        )
+        let events = historyEvents.filter { relatedEventIDs.contains($0.id) }
+        guard !events.isEmpty, events.allSatisfy({ $0.undoDelta != nil }) else {
+            return nil
+        }
+
+        return HistoryRevertContext(
+            relatedEventIDs: relatedEventIDs,
+            events: events
+        )
+    }
+
+    private func isInsideHistoryRevertWindow(_ date: Date, now: Date) -> Bool {
+        let todayStart = calendar.startOfDay(for: now)
+        guard let yesterdayStart = calendar.date(byAdding: .day, value: -1, to: todayStart),
+              let tomorrowStart = calendar.date(byAdding: .day, value: 1, to: todayStart) else {
+            return false
+        }
+
+        return date >= yesterdayStart && date < tomorrowStart
     }
 
     func updateSettings(_ newSettings: BudgetSettings) {
@@ -646,6 +811,7 @@ final class BudgetViewModel: ObservableObject {
         recalculate()
     }
 
+    @discardableResult
     func addCustomSubcategory(
         categoryType: ExpenseCategoryType,
         name: String,
@@ -654,8 +820,8 @@ final class BudgetViewModel: ObservableObject {
         minLimit: Double,
         maxLimit: Double,
         priority: SubcategoryPriorityLevel
-    ) {
-        _ = performAddCustomSubcategory(
+    ) -> Result<UUID, AddSubcategoryError> {
+        performAddCustomSubcategory(
             categoryType: categoryType,
             name: name,
             iconName: iconName,
@@ -713,7 +879,7 @@ final class BudgetViewModel: ObservableObject {
         minLimit: Double,
         maxLimit: Double,
         priority: SubcategoryPriorityLevel
-    ) -> Bool {
+    ) -> Result<UUID, AddSubcategoryError> {
         performAddCustomSubcategory(
             categoryType: categoryType,
             name: name,
@@ -737,7 +903,7 @@ final class BudgetViewModel: ObservableObject {
         maxLimit: Double,
         priority: SubcategoryPriorityLevel,
         allocations: [UUID: Double]
-    ) -> Bool {
+    ) -> Result<UUID, AddSubcategoryError> {
         performAddCustomSubcategory(
             categoryType: categoryType,
             name: name,
@@ -795,7 +961,9 @@ final class BudgetViewModel: ObservableObject {
             sub.name = normalizedName
         }
 
-        sub.iconName = SubcategoryIconCatalog.normalized(iconName)
+        if !sub.isSystem {
+            sub.iconName = SubcategoryIconCatalog.normalized(iconName)
+        }
         sub.percentage = normalizedPercentage
         sub.fixedMinimumPercentage = nil
         sub.minLimit = finalMinLimit > 0 ? finalMinLimit : nil
@@ -904,7 +1072,7 @@ final class BudgetViewModel: ObservableObject {
         guard let subIndex = settings.categories[categoryIndex].subcategories.firstIndex(where: { $0.id == subcategoryID }) else { return }
 
         let subcategory = settings.categories[categoryIndex].subcategories[subIndex]
-        guard !subcategory.isSystem else { return }
+        guard !subcategory.isRequired else { return }
 
         let allocated = allocatedBySubcategoryID[subcategoryID, default: 0]
         let remaining = max(0, allocated - subcategory.spentAmount)
@@ -915,6 +1083,42 @@ final class BudgetViewModel: ObservableObject {
         syncLastBankAutoDistributionStorageWithSettings()
         syncMonthlyIncomeStorageWithSettings()
         recalculate()
+    }
+
+    func availableRecommendedCards(
+        for categoryType: ExpenseCategoryType
+    ) -> [RecommendedCardTemplate] {
+        let activeKeys = Set(
+            settings.categories
+                .first(where: { $0.type == categoryType })?
+                .subcategories
+                .compactMap(\.systemKey) ?? []
+        )
+        return settings.recommendationTemplates.filter {
+            $0.categoryType == categoryType && !activeKeys.contains($0.systemKey)
+        }
+    }
+
+    @discardableResult
+    func addRecommendedSubcategory(systemKey: SystemSubcategoryKey) -> Bool {
+        guard let template = settings.recommendationTemplates.first(where: {
+            $0.systemKey == systemKey
+        }),
+        let categoryIndex = settings.categories.firstIndex(where: {
+            $0.type == template.categoryType
+        }),
+        !settings.categories[categoryIndex].subcategories.contains(where: {
+            $0.systemKey == systemKey
+        }) else {
+            return false
+        }
+
+        let subcategory = template.makeSubcategory()
+        settings.categories[categoryIndex].subcategories.append(subcategory)
+        allocatedBySubcategoryID[subcategory.id] = 0
+        normalizePriorityRules()
+        recalculate()
+        return true
     }
 
     func remainingForSubcategory(
@@ -1249,18 +1453,27 @@ final class BudgetViewModel: ObservableObject {
         priority: SubcategoryPriorityLevel,
         forcedAllocations: [UUID: Double]?,
         useAutomaticForcedCoverage: Bool
-    ) -> Bool {
+    ) -> Result<UUID, AddSubcategoryError> {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedPercentage = max(0, percentage)
-        guard !trimmedName.isEmpty, normalizedPercentage > 0 else { return false }
-        guard let categoryIndex = settings.categories.firstIndex(where: { $0.type == categoryType }) else { return false }
+        let requestedMinLimit = max(0, minLimit)
+        guard !trimmedName.isEmpty,
+              normalizedPercentage > 0,
+              requestedMinLimit > 0 else {
+            return .failure(.invalidParameters)
+        }
+        guard let categoryIndex = settings.categories.firstIndex(where: { $0.type == categoryType }) else {
+            return .failure(.categoryNotFound)
+        }
 
         let currentTotal = settings.categories[categoryIndex].subcategories.reduce(0) { $0 + $1.percentage }
         let freePercent = max(0, 100 - currentTotal)
-        guard normalizedPercentage <= freePercent + 0.0001 else { return false }
+        guard normalizedPercentage <= freePercent + 0.0001 else {
+            return .failure(.percentageLimitExceeded)
+        }
 
         let normalizedMaxLimit = max(0, maxLimit)
-        var normalizedMinLimit = max(0, minLimit)
+        var normalizedMinLimit = requestedMinLimit
         if normalizedMaxLimit > 0, normalizedMinLimit > normalizedMaxLimit {
             normalizedMinLimit = normalizedMaxLimit
         }
@@ -1270,9 +1483,22 @@ final class BudgetViewModel: ObservableObject {
             minLimit: normalizedMinLimit
         )
         if let requirement {
-            guard requirement.canCover else { return false }
+            guard requirement.canCover else { return .failure(.insufficientCoverage) }
             if !useAutomaticForcedCoverage && forcedAllocations == nil {
-                return false
+                return .failure(.coverageSelectionRequired)
+            }
+        }
+
+        let transactionSnapshot = makeTransactionSnapshot()
+        let domesticMoneyBefore = domesticMoneyTotal()
+        var pendingHistoryEvents: [BudgetHistoryEvent] = []
+        let historyRecorder: (BudgetHistoryEvent) -> Void = { event in
+            pendingHistoryEvents.append(event)
+        }
+        var didCommit = false
+        defer {
+            if !didCommit {
+                restoreTransactionSnapshot(transactionSnapshot)
             }
         }
 
@@ -1297,7 +1523,8 @@ final class BudgetViewModel: ObservableObject {
         _ = autoReallocateExcessWithinCategory(
             categoryIndex: categoryIndex,
             targetSubcategoryID: newSubcategoryID,
-            neededAmount: normalizedMinLimit
+            neededAmount: normalizedMinLimit,
+            historyRecorder: historyRecorder
         )
 
         let currentAllocated = allocatedBySubcategoryID[newSubcategoryID, default: 0]
@@ -1307,7 +1534,7 @@ final class BudgetViewModel: ObservableObject {
             bankBalance -= bankTopUp
             allocatedBySubcategoryID[newSubcategoryID, default: 0] += bankTopUp
             recordMonthlyOtherIncoming(for: newSubcategoryID, amount: bankTopUp)
-            appendHistoryEvent(
+            historyRecorder(
                 BudgetHistoryEvent(
                     type: .transferFromFreeCapital,
                     amount: roundToCents(bankTopUp),
@@ -1329,28 +1556,51 @@ final class BudgetViewModel: ObservableObject {
                 forcedApplied = applyForcedAutomaticCoverage(
                     categoryIndex: categoryIndex,
                     targetSubcategoryID: newSubcategoryID,
-                    shortageAmount: shortageAfterNormal
+                    shortageAmount: shortageAfterNormal,
+                    historyRecorder: historyRecorder
                 )
             } else if let forcedAllocations {
+                let manualCoverageTotal = forcedAllocations.values.reduce(0.0) { partialResult, amount in
+                    partialResult + roundToCents(max(0, amount))
+                }
+                guard abs(manualCoverageTotal - shortageAfterNormal) <= 0.01 else {
+                    return .failure(.invalidManualAllocation)
+                }
                 forcedApplied = applyManualForcedCoverage(
                     categoryIndex: categoryIndex,
                     targetSubcategoryID: newSubcategoryID,
-                    allocations: forcedAllocations
+                    allocations: forcedAllocations,
+                    historyRecorder: historyRecorder
                 )
             } else {
                 forcedApplied = false
             }
 
             if !forcedApplied {
-                settings.categories[categoryIndex].subcategories.removeAll { $0.id == newSubcategoryID }
-                allocatedBySubcategoryID.removeValue(forKey: newSubcategoryID)
-                syncLastBankAutoDistributionStorageWithSettings()
-                return false
+                return .failure(
+                    useAutomaticForcedCoverage
+                        ? .insufficientCoverage
+                        : .invalidManualAllocation
+                )
             }
         }
 
+        guard let createdSubcategory = settings.categories[categoryIndex].subcategories.first(where: {
+            $0.id == newSubcategoryID
+        }),
+        availableBalance(for: createdSubcategory) + 0.01 >= normalizedMinLimit else {
+            return .failure(.incompleteCoverage)
+        }
+
+        guard hasValidMoneyInvariants(),
+              abs(domesticMoneyTotal() - domesticMoneyBefore) <= 0.01 else {
+            return .failure(.invariantViolation)
+        }
+
+        appendHistoryEvents(pendingHistoryEvents)
+        didCommit = true
         recalculate()
-        return true
+        return .success(newSubcategoryID)
     }
 
     private func automaticCategoryCoverageAmount(
@@ -1405,7 +1655,8 @@ final class BudgetViewModel: ObservableObject {
         categoryIndex: Int,
         targetSubcategoryID: UUID,
         neededAmount: Double,
-        parentEventID: UUID? = nil
+        parentEventID: UUID? = nil,
+        historyRecorder: ((BudgetHistoryEvent) -> Void)? = nil
     ) -> Double {
         guard settings.categories.indices.contains(categoryIndex) else { return 0 }
         guard neededAmount > 0.0001 else { return 0 }
@@ -1443,7 +1694,8 @@ final class BudgetViewModel: ObservableObject {
                     to: settings.categories[categoryIndex].subcategories.first(where: { $0.id == targetSubcategoryID }) ?? donor,
                     amount: transferAmount,
                     undoDelta: makeOperationDelta(from: operationBefore, to: makeOperationSnapshot()),
-                    parentEventID: parentEventID
+                    parentEventID: parentEventID,
+                    historyRecorder: historyRecorder
                 )
                 transferred += transferAmount
                 remainingNeed -= transferAmount
@@ -1457,7 +1709,8 @@ final class BudgetViewModel: ObservableObject {
         categoryIndex: Int,
         targetSubcategoryID: UUID,
         shortageAmount: Double,
-        parentEventID: UUID? = nil
+        parentEventID: UUID? = nil,
+        historyRecorder: ((BudgetHistoryEvent) -> Void)? = nil
     ) -> Bool {
         let category = settings.categories[categoryIndex]
         let candidates = forcedCoverageCandidates(
@@ -1475,7 +1728,8 @@ final class BudgetViewModel: ObservableObject {
             categoryIndex: categoryIndex,
             target: target,
             allocations: allocations,
-            parentEventID: parentEventID
+            parentEventID: parentEventID,
+            historyRecorder: historyRecorder
         )
     }
 
@@ -1525,14 +1779,16 @@ final class BudgetViewModel: ObservableObject {
         categoryIndex: Int,
         targetSubcategoryID: UUID,
         allocations: [UUID: Double],
-        parentEventID: UUID? = nil
+        parentEventID: UUID? = nil,
+        historyRecorder: ((BudgetHistoryEvent) -> Void)? = nil
     ) -> Bool {
         guard let target = settings.categories[categoryIndex].subcategories.first(where: { $0.id == targetSubcategoryID }) else { return false }
         return applyForcedCoverageAllocations(
             categoryIndex: categoryIndex,
             target: target,
             allocations: allocations,
-            parentEventID: parentEventID
+            parentEventID: parentEventID,
+            historyRecorder: historyRecorder
         )
     }
 
@@ -1540,7 +1796,8 @@ final class BudgetViewModel: ObservableObject {
         categoryIndex: Int,
         target: Subcategory,
         allocations: [UUID: Double],
-        parentEventID: UUID? = nil
+        parentEventID: UUID? = nil,
+        historyRecorder: ((BudgetHistoryEvent) -> Void)? = nil
     ) -> Bool {
         guard settings.categories.indices.contains(categoryIndex) else { return false }
         let category = settings.categories[categoryIndex]
@@ -1569,7 +1826,8 @@ final class BudgetViewModel: ObservableObject {
                 to: target,
                 amount: amount,
                 undoDelta: makeOperationDelta(from: operationBefore, to: makeOperationSnapshot()),
-                parentEventID: parentEventID
+                parentEventID: parentEventID,
+                historyRecorder: historyRecorder
             )
             totalApplied += amount
         }
@@ -1583,23 +1841,27 @@ final class BudgetViewModel: ObservableObject {
         to target: Subcategory,
         amount: Double,
         undoDelta: BudgetOperationDelta?,
-        parentEventID: UUID? = nil
+        parentEventID: UUID? = nil,
+        historyRecorder: ((BudgetHistoryEvent) -> Void)? = nil
     ) {
-        appendHistoryEvent(
-            BudgetHistoryEvent(
-                type: .categoryReallocation,
-                amount: roundToCents(amount),
-                currencyCode: settings.currencyCode,
-                categoryType: categoryType,
-                categoryTitleSnapshot: categoryType.title,
-                subcategoryID: source.id,
-                subcategoryNameSnapshot: source.name,
-                iconNameSnapshot: source.iconName,
-                counterpartyNameSnapshot: target.name,
-                undoDelta: undoDelta,
-                parentEventID: parentEventID
-            )
+        let event = BudgetHistoryEvent(
+            type: .categoryReallocation,
+            amount: roundToCents(amount),
+            currencyCode: settings.currencyCode,
+            categoryType: categoryType,
+            categoryTitleSnapshot: categoryType.title,
+            subcategoryID: source.id,
+            subcategoryNameSnapshot: source.name,
+            iconNameSnapshot: source.iconName,
+            counterpartyNameSnapshot: target.name,
+            undoDelta: undoDelta,
+            parentEventID: parentEventID
         )
+        if let historyRecorder {
+            historyRecorder(event)
+        } else {
+            appendHistoryEvent(event)
+        }
     }
 
     private func availableBalance(for subcategory: Subcategory) -> Double {
@@ -1699,6 +1961,7 @@ final class BudgetViewModel: ObservableObject {
                     id: subcategory.id,
                     name: subcategory.name,
                     isSystem: subcategory.isSystem,
+                    isRequired: subcategory.isRequired,
                     systemKey: subcategory.systemKey,
                     iconName: subcategory.iconName,
                     basePercentage: subcategory.percentage,
@@ -1894,6 +2157,30 @@ final class BudgetViewModel: ObservableObject {
         )
     }
 
+    private func makeTransactionSnapshot() -> BudgetTransactionSnapshot {
+        BudgetTransactionSnapshot(
+            settings: settings,
+            operationState: makeOperationSnapshot(),
+            lastIncomeAmount: lastIncomeAmount,
+            lastIncomeToBankByCategoryID: lastIncomeToBankByCategoryID,
+            lastBankAutoDistributedBySubcategoryID: lastBankAutoDistributedBySubcategoryID,
+            monthlyTrackingMonthKey: monthlyTrackingMonthKey,
+            currentMonthExpenseBySubcategoryIDCache: currentMonthExpenseBySubcategoryIDCache,
+            currentMonthExpenseCacheKey: currentMonthExpenseCacheKey
+        )
+    }
+
+    private func restoreTransactionSnapshot(_ snapshot: BudgetTransactionSnapshot) {
+        settings = snapshot.settings
+        restoreOperationSnapshot(snapshot.operationState)
+        lastIncomeAmount = snapshot.lastIncomeAmount
+        lastIncomeToBankByCategoryID = snapshot.lastIncomeToBankByCategoryID
+        lastBankAutoDistributedBySubcategoryID = snapshot.lastBankAutoDistributedBySubcategoryID
+        monthlyTrackingMonthKey = snapshot.monthlyTrackingMonthKey
+        currentMonthExpenseBySubcategoryIDCache = snapshot.currentMonthExpenseBySubcategoryIDCache
+        currentMonthExpenseCacheKey = snapshot.currentMonthExpenseCacheKey
+    }
+
     private func restoreOperationSnapshot(_ snapshot: BudgetOperationStateSnapshot) {
         income = snapshot.income
         bankBalance = snapshot.bankBalance
@@ -1911,6 +2198,20 @@ final class BudgetViewModel: ObservableObject {
                     snapshot.spentBySubcategoryID[subcategoryID, default: settings.categories[categoryIndex].subcategories[subcategoryIndex].spentAmount]
             }
         }
+    }
+
+    private func domesticMoneyTotal() -> Double {
+        let automaticSubcategoryIDs = Set(
+            settings.categories
+                .flatMap(\.subcategories)
+                .filter(\.participatesInAutomaticAllocation)
+                .map(\.id)
+        )
+        let allocatedTotal = allocatedBySubcategoryID.reduce(0.0) { partialResult, entry in
+            guard automaticSubcategoryIDs.contains(entry.key) else { return partialResult }
+            return partialResult + entry.value
+        }
+        return bankBalance + allocatedTotal
     }
 
     private func makeOperationDelta(
@@ -1972,6 +2273,69 @@ final class BudgetViewModel: ObservableObject {
         }
 
         return true
+    }
+
+    private func hasValidMoneyInvariants() -> Bool {
+        let tolerance = 0.0001
+        guard income.isFinite, income >= -tolerance,
+              bankBalance.isFinite, bankBalance >= -tolerance else {
+            return false
+        }
+
+        let subcategories = settings.categories.flatMap(\.subcategories)
+        let validSubcategoryIDs = Set(subcategories.map(\.id))
+        let validCategoryIDs = Set(settings.categories.map(\.id))
+
+        guard moneyMapIsValid(
+            allocatedBySubcategoryID,
+            validIDs: validSubcategoryIDs,
+            tolerance: tolerance
+        ),
+        moneyMapIsValid(
+            monthlyIncomeBySubcategoryID,
+            validIDs: validSubcategoryIDs,
+            tolerance: tolerance
+        ),
+        moneyMapIsValid(
+            monthlyIncomeDistributionBySubcategoryID,
+            validIDs: validSubcategoryIDs,
+            tolerance: tolerance
+        ),
+        moneyMapIsValid(
+            monthlyOtherIncomingBySubcategoryID,
+            validIDs: validSubcategoryIDs,
+            tolerance: tolerance
+        ),
+        moneyMapIsValid(
+            monthlyOtherOutgoingBySubcategoryID,
+            validIDs: validSubcategoryIDs,
+            tolerance: tolerance
+        ),
+        moneyMapIsValid(
+            categoryTargetBaselineByID,
+            validIDs: validCategoryIDs,
+            tolerance: tolerance
+        ) else {
+            return false
+        }
+
+        return subcategories.allSatisfy { subcategory in
+            let spent = subcategory.spentAmount
+            let allocated = allocatedBySubcategoryID[subcategory.id, default: 0]
+            return spent.isFinite
+                && spent >= -tolerance
+                && allocated + tolerance >= spent
+        }
+    }
+
+    private func moneyMapIsValid(
+        _ values: [UUID: Double],
+        validIDs: Set<UUID>,
+        tolerance: Double
+    ) -> Bool {
+        values.allSatisfy { id, value in
+            validIDs.contains(id) && value.isFinite && value >= -tolerance
+        }
     }
 
     private func applyReverseUUIDDelta(_ deltaByStringID: [String: Double], to values: inout [UUID: Double]) -> Bool {
@@ -2098,6 +2462,16 @@ final class BudgetViewModel: ObservableObject {
     private func appendHistoryEvent(_ event: BudgetHistoryEvent) {
         historyEvents.insert(event, at: 0)
         updateCurrentMonthExpenseCache(for: event, multiplier: 1)
+        historyStorage.scheduleReplaceAll(historyEvents.sorted { $0.createdAt < $1.createdAt })
+    }
+
+    private func appendHistoryEvents(_ events: [BudgetHistoryEvent]) {
+        guard !events.isEmpty else { return }
+        for event in events {
+            updateCurrentMonthExpenseCache(for: event, multiplier: 1)
+        }
+        historyEvents.append(contentsOf: events)
+        historyEvents.sort { $0.createdAt > $1.createdAt }
         historyStorage.scheduleReplaceAll(historyEvents.sorted { $0.createdAt < $1.createdAt })
     }
 

@@ -167,8 +167,9 @@ struct StartOnboardingBuilder {
         categoryBudgets: [StartCategoryBudget]
     ) -> BudgetSettings {
         let budgetsByType = Dictionary(uniqueKeysWithValues: categoryBudgets.map { ($0.type, $0.monthlyAmount) })
+        let descriptors = onboardingCardDescriptors(for: input, categoryBudgets: categoryBudgets)
         let activeDescriptorsByCategory = Dictionary(
-            grouping: onboardingCardDescriptors(for: input, categoryBudgets: categoryBudgets).filter(\.isActive),
+            grouping: descriptors.filter(\.isActive),
             by: \.categoryType
         )
 
@@ -195,7 +196,30 @@ struct StartOnboardingBuilder {
             return copy
         }
 
-        return BudgetSettings(categories: categories, currencyCode: "UAH")
+        let recommendationTemplates = descriptors
+            .filter(\.isRecommended)
+            .map { descriptor in
+                RecommendedCardTemplate(
+                    systemKey: descriptor.systemKey,
+                    categoryType: descriptor.categoryType,
+                    name: descriptor.name,
+                    iconName: descriptor.iconName,
+                    description: descriptor.note
+                        ?? cardCatalog.description(for: descriptor.systemKey),
+                    percentage: descriptor.basePercentage,
+                    minLimit: descriptor.minLimit > 0 ? descriptor.minLimit : nil,
+                    maxLimit: descriptor.maxLimit,
+                    priority: descriptor.priority.rawValue,
+                    fundingMode: descriptor.fundingMode,
+                    balanceCurrencyCode: descriptor.balanceCurrencyCode
+                )
+            }
+
+        return BudgetSettings(
+            categories: categories,
+            currencyCode: "UAH",
+            recommendationTemplates: recommendationTemplates
+        )
     }
 
     private func onboardingCardDescriptors(
@@ -400,11 +424,13 @@ struct StartOnboardingBuilder {
         iconName: String? = nil,
         priority: SubcategoryPriorityLevel,
         fundingMode: SubcategoryFundingMode = .automatic,
-        balanceCurrencyCode: String? = nil
+        balanceCurrencyCode: String? = nil,
+        isRequired: Bool = true
     ) -> Subcategory {
         Subcategory(
             name: systemKey.defaultName,
             isSystem: true,
+            isRequired: isRequired,
             systemKey: systemKey,
             iconName: iconName ?? cardCatalog.definition(for: systemKey).iconName,
             percentage: percentage,
@@ -427,7 +453,8 @@ struct StartOnboardingBuilder {
             iconName: descriptor.iconName,
             priority: descriptor.priority,
             fundingMode: descriptor.fundingMode,
-            balanceCurrencyCode: descriptor.balanceCurrencyCode
+            balanceCurrencyCode: descriptor.balanceCurrencyCode,
+            isRequired: !descriptor.isRecommended
         )
     }
 
@@ -583,6 +610,7 @@ struct StartOnboardingBuilder {
                     id: subcategory.id,
                     name: subcategory.name,
                     isSystem: subcategory.isSystem,
+                    isRequired: subcategory.isRequired,
                     systemKey: subcategory.systemKey,
                     iconName: subcategory.iconName,
                     basePercentage: subcategory.percentage,
