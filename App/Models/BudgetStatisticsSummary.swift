@@ -50,3 +50,47 @@ struct BudgetStatisticsSummary: Hashable {
         expenseSubcategoriesByCategory: []
     )
 }
+
+enum DashboardStatisticsPeriod: String, CaseIterable, Identifiable {
+    case month
+    case year
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .month: return "Месяц"
+        case .year: return "Год"
+        }
+    }
+}
+
+struct DashboardCurrencyBalance: Identifiable, Hashable {
+    let currencyCode: String
+    let amount: Double
+
+    var id: String { currencyCode }
+}
+
+struct DashboardCardBalance: Hashable {
+    let systemKey: SystemSubcategoryKey?
+    let currencyCode: String
+    let remainingAmount: Double
+    let maxLimit: Double?
+    let minLimit: Double?
+    let spentAmount: Double
+}
+
+struct DashboardBalanceState: Hashable {
+    let bankAmount: Double
+    let cards: [DashboardCardBalance]
+}
+
+struct DashboardPeriodStatistics: Hashable {
+    let totalIncome: Double
+    let totalExpense: Double
+    let openingBalance: Double
+    let closingBalance: Double
+    let outstandingDebt: Double
+    let currencyBalances: [DashboardCurrencyBalance]
+}

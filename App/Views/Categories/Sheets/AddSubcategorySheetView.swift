@@ -7,22 +7,26 @@ struct AddSubcategorySheetView: View {
     let freePercent: Double
     let freeMoney: Double
     let coverageRequirement: CategoryCoverageRequirement?
+    let recommendedCards: [RecommendedCardTemplate]
 
     @Binding var subcategoryNameInput: String
     @Binding var subcategoryPercentInput: String
     @Binding var subcategoryMinAmountInput: String
     @Binding var subcategoryMaxAmountInput: String
+    @Binding var subcategoryRequiresMinimumAmount: Bool
     @Binding var subcategoryIconName: String
 
     let canCreate: Bool
     let onCreate: () -> Void
     let onCreateWithAutomaticForcedCoverage: () -> Void
     let onCreateWithManualForcedCoverage: ([UUID: Double]) -> Void
+    let onAddRecommendedCard: (SystemSubcategoryKey) -> Void
     let onCancel: () -> Void
 
     @FocusState private var isNameFocused: Bool
     @State private var isCoverageChoicePresented = false
     @State private var isManualCoveragePresented = false
+    @State private var addedRecommendationKeys: Set<SystemSubcategoryKey> = []
 
     private var requestedPercent: Double {
         nonNegativeValue(from: subcategoryPercentInput)
@@ -38,11 +42,11 @@ struct AddSubcategorySheetView: View {
 
                     Text("Свободно: \(formattedPercent(max(0, freePercent)))%")
                         .font(.subheadline)
-                        .foregroundColor(freePercent > 0 ? .secondary : .red)
+                        .foregroundColor(freePercent > 0 ? .secondary : AppTheme.negative)
 
                     Text("Свободно денег: \(currency(freeMoney))")
                         .font(.subheadline)
-                        .foregroundColor(freeMoney > 0 ? .secondary : .red)
+                        .foregroundColor(freeMoney > 0 ? .secondary : AppTheme.negative)
 
                     Text("Из них в свободном капитале: \(currency(bankAvailableAmount))")
                         .font(.caption)
@@ -55,12 +59,19 @@ struct AddSubcategorySheetView: View {
                     if freePercent <= 0 {
                         Text("Лимит 100% исчерпан. Добавление новой карточки недоступно.")
                             .font(.caption)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(AppTheme.negative)
                     }
 
                     Text("Пользовательские карточки всегда создаются с низким приоритетом.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    if !visibleRecommendedCards.isEmpty {
+                        recommendedCardsSection
+                        Divider()
+                        Text("Создать свою карточку")
+                            .font(.headline)
+                    }
 
                     SubcategoryIconPickerView(selectedIconName: $subcategoryIconName)
 
@@ -75,16 +86,35 @@ struct AddSubcategorySheetView: View {
                     if requestedPercent > freePercent, requestedPercent > 0 {
                         Text("Превышение лимита: доступно не более \(formattedPercent(max(0, freePercent)))%.")
                             .font(.caption)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(AppTheme.negative)
                     }
 
-                    TextField("Минимальная сумма", text: $subcategoryMinAmountInput)
-                        .keyboardType(.decimalPad)
-                        .textFieldStyle(.roundedBorder)
+                    Toggle(
+                        "Обязательная минимальная сумма",
+                        isOn: $subcategoryRequiresMinimumAmount
+                    )
 
-                    TextField("Максимальная сумма", text: $subcategoryMaxAmountInput)
-                        .keyboardType(.decimalPad)
-                        .textFieldStyle(.roundedBorder)
+                    CurrencyInput(
+                        text: $subcategoryMinAmountInput,
+                        placeholder: subcategoryRequiresMinimumAmount
+                            ? "Минимальная сумма*"
+                            : "Минимальная сумма (необязательно)",
+                        currencyCode: currencyCode,
+                        showsDoneButton: false
+                    )
+
+                    if subcategoryRequiresMinimumAmount, requestedMinAmount <= 0 {
+                        Text("Укажите минимальную сумму, чтобы добавить карточку.")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.negative)
+                    }
+
+                    CurrencyInput(
+                        text: $subcategoryMaxAmountInput,
+                        placeholder: "Максимальная сумма",
+                        currencyCode: currencyCode,
+                        showsDoneButton: false
+                    )
 
                     Button("Добавить карточку") {
                         if let coverageRequirement, coverageRequirement.canCover {
@@ -102,12 +132,18 @@ struct AddSubcategorySheetView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Отмена", action: onCancel)
+                    Button("Назад", action: onCancel)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
                     Button("Готово") {
                         isNameFocused = false
+                        UIApplication.shared.sendAction(
+                            #selector(UIResponder.resignFirstResponder),
+                            to: nil,
+                            from: nil,
+                            for: nil
+                        )
                     }
                 }
             }
@@ -115,8 +151,10 @@ struct AddSubcategorySheetView: View {
                 if subcategoryIconName.isEmpty {
                     subcategoryIconName = SubcategoryIconCatalog.selectableSymbols.first ?? SubcategoryIconCatalog.fallbackSymbol
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    isNameFocused = true
+                if recommendedCards.isEmpty {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        isNameFocused = true
+                    }
                 }
             }
             .confirmationDialog("Покрытие внутри категории", isPresented: $isCoverageChoicePresented, titleVisibility: .visible) {
@@ -155,8 +193,48 @@ struct AddSubcategorySheetView: View {
     }
 
     private func nonNegativeValue(from input: String) -> Double {
-        let normalized = input.replacingOccurrences(of: ",", with: ".")
-        return max(0, Double(normalized) ?? 0)
+        CurrencyInputFormatter.value(from: input, allowsNegative: false)
+    }
+
+    private var visibleRecommendedCards: [RecommendedCardTemplate] {
+        recommendedCards.filter { !addedRecommendationKeys.contains($0.systemKey) }
+    }
+
+    private var recommendedCardsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Готовые карточки")
+                .font(.headline)
+            Text("Добавляются с параметрами, рассчитанными при стартовой настройке.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            ForEach(visibleRecommendedCards) { card in
+                Button {
+                    onAddRecommendedCard(card.systemKey)
+                    addedRecommendationKeys.insert(card.systemKey)
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: card.iconName)
+                            .frame(width: 28)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(card.name)
+                                .font(.subheadline.weight(.semibold))
+                            Text(card.description)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                        Spacer()
+                        Image(systemName: "plus.circle.fill")
+                            .foregroundStyle(AppTheme.accent)
+                    }
+                    .padding(12)
+                    .background(AppTheme.cardBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 
     private func formattedPercent(_ value: Double) -> String {
@@ -180,11 +258,11 @@ struct AddSubcategorySheetView: View {
             if requirement.canCover {
                 Text("Останется покрыть внутри категории: \(currency(requirement.shortageAmount)). Можно выбрать Авто или Ручной режим.")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(AppTheme.warning)
             } else {
                 Text("Новая карточка недоступна: категория не покрывает минимальную сумму даже с заходом в минимумы. Максимум доступно: \(currency(requirement.totalAvailableAmount)).")
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(AppTheme.negative)
             }
         }
     }
@@ -225,7 +303,7 @@ struct SubcategoryIconPickerView: View {
                 .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(Color(.systemGray6))
+                        .fill(AppTheme.cardBackground)
                 )
             }
             .buttonStyle(.plain)
@@ -260,11 +338,11 @@ private struct SubcategoryIconPickerSheetView: View {
                                 .frame(width: 48, height: 48)
                                 .background(
                                     RoundedRectangle(cornerRadius: 10)
-                                        .fill(selectedIconName == iconName ? Color.accentColor.opacity(0.18) : Color(.systemGray6))
+                                        .fill(selectedIconName == iconName ? AppTheme.accent.opacity(0.18) : AppTheme.cardBackground)
                                 )
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 10)
-                                        .stroke(selectedIconName == iconName ? Color.accentColor : Color.clear, lineWidth: 1)
+                                        .stroke(selectedIconName == iconName ? AppTheme.accent : Color.clear, lineWidth: 1)
                                 )
                         }
                         .buttonStyle(.plain)
@@ -295,7 +373,6 @@ struct ForcedCoverageSheetView: View {
     let onCancel: () -> Void
 
     @State private var allocations: [UUID: String] = [:]
-    @FocusState private var focusedCandidateID: UUID?
 
     var body: some View {
         NavigationStack {
@@ -311,10 +388,10 @@ struct ForcedCoverageSheetView: View {
 
                         Text("Выбрано: \(currency(selectedTotal))")
                             .font(.subheadline)
-                            .foregroundStyle(isSelectionValid ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.orange))
+                            .foregroundStyle(isSelectionValid ? AnyShapeStyle(.secondary) : AnyShapeStyle(AppTheme.warning))
                     }
                     .padding()
-                    .background(Color(.systemGray6))
+                    .background(AppTheme.panelBackground)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
 
                     ForEach(requirement.candidates) { candidate in
@@ -332,23 +409,22 @@ struct ForcedCoverageSheetView: View {
                                 Spacer()
                             }
 
-                            TextField(
-                                "Сумма списания",
-                                text: binding(for: candidate)
+                            CurrencyInput(
+                                text: binding(for: candidate),
+                                placeholder: "Сумма списания",
+                                currencyCode: currencyCode,
+                                showsDoneButton: false
                             )
-                            .keyboardType(.decimalPad)
-                            .textFieldStyle(.roundedBorder)
-                            .focused($focusedCandidateID, equals: candidate.id)
                         }
                         .padding()
-                        .background(Color(.systemGray6))
+                        .background(AppTheme.panelBackground)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
 
                     if !isSelectionValid {
                         Text("Суммы должны точно покрывать задачу и не превышать доступное в каждой карточке.")
                             .font(.caption)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(AppTheme.negative)
                     }
                 }
                 .padding()
@@ -368,7 +444,12 @@ struct ForcedCoverageSheetView: View {
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
                     Button("Готово") {
-                        focusedCandidateID = nil
+                        UIApplication.shared.sendAction(
+                            #selector(UIResponder.resignFirstResponder),
+                            to: nil,
+                            from: nil,
+                            for: nil
+                        )
                     }
                 }
             }
@@ -409,8 +490,7 @@ struct ForcedCoverageSheetView: View {
     }
 
     private func parsedAmount(_ input: String) -> Double {
-        let normalized = input.replacingOccurrences(of: ",", with: ".")
-        return max(0, Double(normalized) ?? 0)
+        CurrencyInputFormatter.value(from: input, allowsNegative: false)
     }
 
     private func roundToCents(_ value: Double) -> Double {

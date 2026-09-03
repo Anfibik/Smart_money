@@ -16,10 +16,18 @@ struct StartOnboardingFlowView: View {
     @State private var hasCredit = false
     @State private var creditPaymentInput = ""
     @State private var strategy: StartStrategyType = .stability
-    @State private var expandedCardKeys: Set<String> = []
     @State private var selectedRecommendationKeys: Set<SystemSubcategoryKey> = []
+    @State private var capitalCoveragePolicy: FreeCapitalCoveragePolicy = .none
+    @State private var goalTargetAmountInput = ""
+    @State private var isGoalTargetPromptPresented = false
+    @State private var hasForeignCurrency = false
+    @State private var foreignCurrency: ForeignCurrencyType = .usd
+    @State private var foreignCurrencyAmountInput = "0"
+    @State private var isForeignCurrencyAmountFocused = false
+    @State private var isForeignCurrencyPickerPresented = false
 
     private let builder = StartOnboardingBuilder()
+    private let capitalCoveragePlanner = StartCapitalCoveragePlanner()
 
     var body: some View {
         NavigationStack {
@@ -51,14 +59,62 @@ struct StartOnboardingFlowView: View {
             .background(AppTheme.appBackground.ignoresSafeArea())
             .navigationTitle("Стартовая настройка")
             .navigationBarTitleDisplayMode(.inline)
+            .alert("Сумма цели", isPresented: $isGoalTargetPromptPresented) {
+                TextField("Например, 500 000", text: $goalTargetAmountInput)
+                    .keyboardType(.decimalPad)
+
+                Button("Отмена", role: .cancel) {
+                    goalTargetAmountInput = ""
+                }
+
+                Button("Добавить") {
+                    guard parsedDouble(goalTargetAmountInput) > 0 else { return }
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        _ = selectedRecommendationKeys.insert(.goal)
+                    }
+                }
+                .disabled(parsedDouble(goalTargetAmountInput) <= 0)
+            } message: {
+                Text("Укажите полную стоимость цели. Эта сумма станет максимумом карточки.")
+            }
+            .onChange(of: goalTargetAmountInput) { _, newValue in
+                let sanitized = CurrencyInputFormatter.sanitized(newValue)
+                if goalTargetAmountInput != sanitized {
+                    goalTargetAmountInput = sanitized
+                }
+            }
+            .onChange(of: hasForeignCurrency) { _, isEnabled in
+                if !isEnabled {
+                    foreignCurrencyAmountInput = "0"
+                    isForeignCurrencyAmountFocused = false
+                }
+            }
+            .confirmationDialog(
+                "Выберите валюту",
+                isPresented: $isForeignCurrencyPickerPresented,
+                titleVisibility: .visible
+            ) {
+                ForEach(ForeignCurrencyType.allCases) { currency in
+                    Button(currency.displayName) {
+                        foreignCurrency = currency
+                    }
+                }
+            }
         }
     }
 
     private var stepHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Шаг \(currentStep) из 5")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Шаг \(currentStep) из 5")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(AppTheme.secondaryText)
+
+                ProgressView(value: Double(currentStep), total: 5)
+                    .progressViewStyle(.linear)
+                    .tint(AppTheme.accent)
+                    .scaleEffect(x: 1, y: 1.5, anchor: .center)
+            }
 
             Text(stepTitle)
                 .font(.title2.weight(.semibold))
@@ -75,13 +131,16 @@ struct StartOnboardingFlowView: View {
                 inputField(
                     title: "Средний доход за месяц*",
                     text: $monthlyIncomeInput,
-                    prompt: "Например, 120 000"
+                    prompt: "Например, 120 000",
+                    autoFocus: true
                 )
 
                 inputField(
-                    title: "Накопленный капитал*",
+                    title: "Текущий капитал / долг*",
                     text: $capitalInput,
-                    prompt: "Можно отрицательное значение"
+                    prompt: "Например, 50 000 или -20 000",
+                    allowsNegative: true,
+                    caption: "Отрицательное значение будет учтено как долг."
                 )
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -101,11 +160,46 @@ struct StartOnboardingFlowView: View {
                     text: $housingCostInput,
                     prompt: "Ежемесячная сумма"
                 )
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle("Наличие валюты", isOn: $hasForeignCurrency)
+                        .font(.subheadline.weight(.medium))
+
+                    if hasForeignCurrency {
+                        Button {
+                            isForeignCurrencyAmountFocused = false
+                            isForeignCurrencyPickerPresented = true
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text(foreignCurrency.displayName)
+                                    .font(.body.weight(.medium))
+                                Spacer(minLength: 8)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.caption.weight(.semibold))
+                            }
+                            .foregroundStyle(AppTheme.accent)
+                            .padding(.horizontal, 14)
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: 50)
+                            .background(AppTheme.cardBackground)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Валюта")
+
+                        inputField(
+                            title: "Сумма в \(foreignCurrency.rawValue)",
+                            text: $foreignCurrencyAmountInput,
+                            prompt: "0",
+                            currencyCode: foreignCurrency.rawValue,
+                            externalFocus: $isForeignCurrencyAmountFocused
+                        )
+                    }
+                }
             }
 
-            if !isStepOneValid {
-                validationText(stepOneValidationMessage)
-            }
         }
     }
 
@@ -114,11 +208,11 @@ struct StartOnboardingFlowView: View {
             fieldCard {
                 Stepper("Взрослые: \(dependentsCount)", value: $dependentsCount, in: 0...12)
 
-                Stepper("Стариков: \(elderlyDependentsCount)", value: $elderlyDependentsCount, in: 0...12)
+                Stepper("Пожилые родственники: \(elderlyDependentsCount)", value: $elderlyDependentsCount, in: 0...12)
 
                 Stepper("Дети до 12 лет: \(childrenCount)", value: $childrenCount, in: 0...12)
 
-                Stepper("Домашние животныхе: \(petsCount)", value: $petsCount, in: 0...12)
+                Stepper("Домашние животные: \(petsCount)", value: $petsCount, in: 0...12)
 
                 Toggle("Есть авто", isOn: $hasCar)
 
@@ -173,7 +267,7 @@ struct StartOnboardingFlowView: View {
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: strategy == item ? "largecircle.fill.circle" : "circle")
                             .font(.title3)
-                            .foregroundStyle(strategy == item ? .green : .secondary)
+                            .foregroundStyle(strategy == item ? AppTheme.accent : .secondary)
 
                         VStack(alignment: .leading, spacing: 6) {
                             Text(item.title)
@@ -198,93 +292,308 @@ struct StartOnboardingFlowView: View {
 
     @ViewBuilder
     private var summaryStep: some View {
-        if let preview = preview {
-            VStack(alignment: .leading, spacing: 16) {
-                summaryMetrics(preview: preview)
-
-                if !preview.warnings.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Предупреждения")
-                            .font(.headline)
-
-                        ForEach(preview.warnings, id: \.self) { warning in
-                            Text("• \(warning)")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding()
-                    .background(AppTheme.panelBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-                }
+        if let preview, let capitalCoveragePlan {
+            VStack(alignment: .leading, spacing: 14) {
+                incomeResultCard(preview: preview)
+                freeCapitalResultCard(
+                    plan: capitalCoveragePlan,
+                    configuration: preview.configuration
+                )
+                capitalCoverageChoiceCard(plan: capitalCoveragePlan)
+                emergencyFundCard(preview: preview)
             }
         } else {
             validationText("Не удалось собрать итоговую конфигурацию. Проверьте введенные значения.")
         }
     }
 
-    private func summaryMetrics(preview: StartOnboardingPreview) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Итог")
+    private func incomeResultCard(preview: StartOnboardingPreview) -> some View {
+        let configuration = preview.configuration
+        let difference = monthlyDifference(for: configuration)
+        let hasEnoughIncome = difference >= -0.01
+        let statusColor = hasEnoughIncome ? AppTheme.positive : AppTheme.negative
+
+        return VStack(alignment: .leading, spacing: 16) {
+            Label("Общее финансовое состояние", systemImage: "chart.pie.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(hasEnoughIncome ? "Дохода хватает" : "Дохода не хватает")
+                    .font(.title3.weight(.bold))
+
+                Text(currency(abs(difference)))
+                    .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                    .foregroundStyle(statusColor)
+
+                Text(
+                    hasEnoughIncome
+                        ? "Данная сумма остается после покрытия Вашего прожиточного минимума."
+                        : "Столько не хватает ежемесячно для покрытия Вашего прожиточного минимума."
+                )
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 10) {
+                summaryMetric(
+                    title: "Доход",
+                    value: currency(configuration.input.monthlyIncome)
+                )
+                summaryMetric(
+                    title: "Нужно минимум",
+                    value: currency(configuration.monthlyMinimumExcludingEmergency)
+                )
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(statusColor.opacity(0.10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(statusColor.opacity(0.28), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+
+    private func capitalCoverageChoiceCard(
+        plan: StartCapitalCoveragePlan
+    ) -> some View {
+        let coversCardDeficits = capitalCoveragePolicy.coversCardDeficits
+        let coversEmergencyFund = capitalCoveragePolicy.coversEmergencyFund
+        let hasSelectedCoverage = coversCardDeficits || coversEmergencyFund
+        let cardDeficitsBinding = Binding(
+            get: { capitalCoveragePolicy.coversCardDeficits },
+            set: {
+                capitalCoveragePolicy = capitalCoveragePolicy
+                    .settingCardDeficitsCoverage($0)
+            }
+        )
+        let emergencyFundBinding = Binding(
+            get: { capitalCoveragePolicy.coversEmergencyFund },
+            set: {
+                capitalCoveragePolicy = capitalCoveragePolicy
+                    .settingEmergencyFundCoverage($0)
+            }
+        )
+
+        return summarySectionCard(
+            title: "Использовать свободный капитал",
+            systemImage: "arrow.triangle.branch"
+        ) {
+            Toggle(isOn: cardDeficitsBinding.animation(.easeInOut(duration: 0.2))) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Покрыть потребности")
+                        .font(.subheadline.weight(.semibold))
+                    Text(
+                        plan.hasCardDeficits
+                            ? coverageOptionText(
+                                isEnabled: coversCardDeficits,
+                                deficit: plan.cardDeficitTotal,
+                                coveredAmount: plan.coveredCardDeficitAmount
+                            )
+                            : "Все минимальные потребности уже покрыты"
+                    )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .tint(AppTheme.accent)
+            .disabled(!plan.hasCardDeficits || plan.availableFreeCapital <= 0.01)
+
+            summaryDivider
+
+            Toggle(isOn: emergencyFundBinding.animation(.easeInOut(duration: 0.2))) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Пополнить Подушку")
+                        .font(.subheadline.weight(.semibold))
+                    Text(
+                        plan.hasEmergencyFundDeficit
+                            ? coverageOptionText(
+                                isEnabled: coversEmergencyFund,
+                                deficit: plan.emergencyFundDeficit,
+                                coveredAmount: plan.coveredEmergencyFundAmount
+                            )
+                            : "Цель Подушки уже достигнута"
+                    )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .tint(AppTheme.accent)
+            .disabled(!plan.hasEmergencyFundDeficit || plan.availableFreeCapital <= 0.01)
+
+            summaryDivider
+            summaryValueRow(
+                "Будет использовано",
+                currency(plan.projectedDistribution),
+                valueColor: hasSelectedCoverage ? AppTheme.accent : .secondary,
+                isEmphasized: true
+            )
+        }
+    }
+
+    private func emergencyFundCard(preview: StartOnboardingPreview) -> some View {
+        let target = max(0, preview.configuration.emergencyTarget)
+        let currentAmount = emergencyFundAmount(in: preview)
+        let remaining = max(0, target - currentAmount)
+        let progress = target > 0 ? min(1, currentAmount / target) : 1
+
+        return summarySectionCard(
+            title: "Финансовая Подушка",
+            systemImage: "shield.fill"
+        ) {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                    Text("Сформировано")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(percentText(progress * 100))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(remaining > 0.01 ? AppTheme.warning : AppTheme.positive)
+                }
+
+                ProgressView(value: progress)
+                    .tint(remaining > 0.01 ? AppTheme.warning : AppTheme.positive)
+            }
+
+            summaryValueRow(
+                "Сейчас",
+                currency(currentAmount),
+                valueColor: currentAmount > 0.01 ? AppTheme.primaryText : .secondary
+            )
+            summaryDivider
+            summaryValueRow("Цель", currency(target))
+            summaryDivider
+            summaryValueRow(
+                "Осталось накопить",
+                currency(remaining),
+                valueColor: remaining > 0.01 ? AppTheme.warning : AppTheme.positive,
+                isEmphasized: true
+            )
+
+        }
+    }
+
+    private func freeCapitalResultCard(
+        plan: StartCapitalCoveragePlan,
+        configuration: StartOnboardingConfiguration
+    ) -> some View {
+        summarySectionCard(
+            title: "Свободный капитал",
+            systemImage: "banknote.fill"
+        ) {
+            Text(currency(plan.projectedRemainingFreeCapital))
+                .font(.system(.title, design: .rounded, weight: .bold))
+                .foregroundStyle(
+                    plan.projectedRemainingFreeCapital > 0.01
+                        ? AppTheme.positive
+                        : AppTheme.secondaryText
+                )
+
+            if configuration.initialDistributionShortfall > 0.01 {
+                Text(
+                    "Стартовое распределение ограничено текущим капиталом: "
+                    + "распределится \(currency(configuration.initialDistributionAmount)) "
+                    + "из \(currency(configuration.input.monthlyIncome)). "
+                    + "Не хватает \(currency(configuration.initialDistributionShortfall))."
+                )
+                .font(.caption)
+                .foregroundStyle(AppTheme.warning)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
+        }
+    }
+
+    private func coverageOptionText(
+        isEnabled: Bool,
+        deficit: Double,
+        coveredAmount: Double
+    ) -> String {
+        if isEnabled {
+            return "Будет покрыто: \(currency(coveredAmount))"
+        }
+        return "Не покрыто: \(currency(deficit))"
+    }
+
+    private func emergencyFundAmount(
+        in preview: StartOnboardingPreview
+    ) -> Double {
+        preview.distribution.categoryAllocations
+            .first(where: { $0.type == .savings })?
+            .subcategoryAllocations
+            .first(where: { $0.systemKey == .emergencyFund })?
+            .remainingAmount ?? 0
+    }
+
+    private func summaryMetric(
+        title: String,
+        value: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.subheadline.monospacedDigit().weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.cardBackground.opacity(0.72))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func summarySectionCard<Content: View>(
+        title: String,
+        systemImage: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label(title, systemImage: systemImage)
                 .font(.headline)
 
-            metricRow("Стратегия", strategy.title)
-            metricRow("Минимальная сумма в месяц для проживания", preview.configuration.monthlyMinimumExcludingEmergency, isCurrency: true)
-            metricRow("Базовые расходы на жизнь", preview.configuration.mandatoryLivingMonthly, isCurrency: true)
-            metricRow("Величина финансовой подушки", preview.configuration.emergencyTarget, isCurrency: true)
-            metricRow("Данная сумма взята из вашего капитала, так как ежемесячного дохода не хватает для покрытия минимальной потребности", preview.configuration.capitalAppliedToMinimums, isCurrency: true)
-            metricRow("\"Свободный капитал\" - остаток от вашего капитала после распределения дефицитов", preview.configuration.remainingFreeCapital, isCurrency: true)
-
-            if let months = preview.configuration.freeCapitalCoverageMonths {
-                metricRow("Хватит свободного капитала на:", "\(String(format: "%.2f", months)) мес.")
-            } else {
-                metricRow("Срок проживания в месяцах на свободном капитале", "Не определяется")
-            }
-
-            if preview.configuration.totalDeficit > 0.01 {
-                metricRow("Дефицит денег для покрытия минимального проживания", preview.configuration.totalDeficit, isCurrency: true, color: .red)
-            }
+            content()
         }
         .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.panelBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
-    private func metricRow(
+    private func summaryValueRow(
         _ title: String,
         _ value: String,
-        color: Color = .secondary
+        valueColor: Color = .primary,
+        isEmphasized: Bool = false
     ) -> some View {
-        HStack {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
             Text(title)
                 .font(.subheadline)
-            Spacer()
+                .foregroundStyle(.secondary)
+
+            Spacer(minLength: 12)
+
             Text(value)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(color)
+                .font(isEmphasized ? .headline : .subheadline.weight(.semibold))
+                .foregroundStyle(valueColor)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
         }
     }
 
-    private func metricRow(
-        _ title: String,
-        _ value: Double,
-        isCurrency: Bool,
-        color: Color = .secondary
-    ) -> some View {
-        HStack {
-            Text(title)
-                .font(.subheadline)
-            Spacer()
-            if isCurrency {
-                Text(currency(value))
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(color)
-            } else {
-                Text("\(value, specifier: "%.2f")")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(color)
-            }
-        }
+    private var summaryDivider: some View {
+        Divider()
+            .overlay(Color.secondary.opacity(0.12))
+    }
+
+    private func monthlyDifference(for configuration: StartOnboardingConfiguration) -> Double {
+        configuration.input.monthlyIncome - configuration.monthlyMinimumExcludingEmergency
     }
 
     private func onboardingCategorySection(
@@ -376,7 +685,7 @@ struct StartOnboardingFlowView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(currency(allocation?.allocatedAmount ?? 0))
+                Text(cardCurrency(allocation?.allocatedAmount ?? 0, descriptor: descriptor))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(isInactiveRecommendation ? .secondary : .primary)
 
@@ -394,9 +703,19 @@ struct StartOnboardingFlowView: View {
         .contentShape(RoundedRectangle(cornerRadius: 14))
         .onTapGesture {
             guard descriptor.isRecommended else { return }
+
+            if descriptor.systemKey == .goal, !descriptor.isActive {
+                goalTargetAmountInput = ""
+                isGoalTargetPromptPresented = true
+                return
+            }
+
             withAnimation(.easeInOut(duration: 0.2)) {
                 if descriptor.isActive {
                     selectedRecommendationKeys.remove(descriptor.systemKey)
+                    if descriptor.systemKey == .goal {
+                        goalTargetAmountInput = ""
+                    }
                 } else {
                     selectedRecommendationKeys.insert(descriptor.systemKey)
                 }
@@ -424,32 +743,68 @@ struct StartOnboardingFlowView: View {
     }
 
     private var footer: some View {
-        HStack {
+        HStack(spacing: 12) {
             if currentStep > 1 {
-                Button("Назад") {
+                Button {
                     currentStep -= 1
+                } label: {
+                    Text("Назад")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
+                .foregroundStyle(AppTheme.primaryText)
+                .background(AppTheme.cardBackground)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(AppTheme.mutedIcon.opacity(0.35), lineWidth: 1)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 14))
             }
 
-            Spacer()
-
             if currentStep < 5 {
-                Button("Далее") {
+                Button {
                     currentStep += 1
+                } label: {
+                    primaryFooterLabel("Далее")
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.plain)
                 .disabled(!canAdvance)
+                .foregroundStyle(primaryFooterTextColor(isEnabled: canAdvance))
+                .background(primaryFooterBackground(isEnabled: canAdvance))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
             } else {
-                Button("Создать стартовое состояние") {
+                let canStart = preview != nil
+                Button {
                     if let configuration = preview?.configuration {
                         onComplete(configuration)
                     }
+                } label: {
+                    primaryFooterLabel("Начать")
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(preview == nil)
+                .buttonStyle(.plain)
+                .disabled(!canStart)
+                .foregroundStyle(primaryFooterTextColor(isEnabled: canStart))
+                .background(primaryFooterBackground(isEnabled: canStart))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
             }
         }
+    }
+
+    private func primaryFooterLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.subheadline.weight(.semibold))
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+    }
+
+    private func primaryFooterBackground(isEnabled: Bool) -> Color {
+        isEnabled ? AppTheme.accent : AppTheme.cardBackground
+    }
+
+    private func primaryFooterTextColor(isEnabled: Bool) -> Color {
+        isEnabled ? AppTheme.primaryText : AppTheme.primaryText.opacity(0.58)
     }
 
     private func fieldCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
@@ -462,15 +817,34 @@ struct StartOnboardingFlowView: View {
     private func inputField(
         title: String,
         text: Binding<String>,
-        prompt: String
+        prompt: String,
+        currencyCode: String = "UAH",
+        allowsNegative: Bool = false,
+        autoFocus: Bool = false,
+        caption: String? = nil,
+        externalFocus: Binding<Bool>? = nil
     ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 7) {
             Text(title)
                 .font(.subheadline.weight(.medium))
+                .foregroundStyle(AppTheme.primaryText)
 
-            TextField(prompt, text: text)
-                .keyboardType(.decimalPad)
-                .textFieldStyle(.roundedBorder)
+            CurrencyInput(
+                text: text,
+                placeholder: prompt,
+                currencyCode: currencyCode,
+                allowsNegative: allowsNegative,
+                style: .card,
+                autoFocus: autoFocus,
+                externalFocus: externalFocus
+            )
+
+            if let caption {
+                Text(caption)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -490,7 +864,8 @@ struct StartOnboardingFlowView: View {
     private func validationText(_ text: String) -> some View {
         Text(text)
             .font(.caption)
-            .foregroundStyle(.red)
+            .foregroundStyle(AppTheme.negative)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var stepTitle: String {
@@ -504,22 +879,22 @@ struct StartOnboardingFlowView: View {
         case 4:
             return "Карты потребностей"
         default:
-            return "Итоговая конфигурация"
+            return "Ваш финансовый план готов"
         }
     }
 
     private var stepDescription: String {
         switch currentStep {
         case 1:
-            return "Введи данные для распределения стартового бюджета на потребности."
+            return "Введите данные для распределения стартового бюджета на потребности."
         case 2:
-            return "Данные параметры влияют на дополнительные расходы по содержанию иждивенцев"
+            return "Эти параметры влияют на дополнительные расходы семьи."
         case 3:
-            return "Выбери стратегию своего бюджета."
+            return "Выберите стратегию своего бюджета."
         case 4:
-            return "Проверь финальные карты потребностей."
+            return "Ознакомься с картами потребностей и при необходимости добавь предлагаемые, тапнув по ним."
         default:
-            return "Итоговые данные."
+            return "Посмотри, как распределятся доход и стартовый капитал."
         }
     }
 
@@ -569,7 +944,26 @@ struct StartOnboardingFlowView: View {
 
     private var preview: StartOnboardingPreview? {
         guard isStepOneValid, isStepTwoValid else { return nil }
-        return builder.buildPreview(input: resolvedInput)
+        return builder.buildPreview(
+            input: resolvedInput,
+            capitalCoveragePolicy: capitalCoveragePolicy
+        )
+    }
+
+    private var uncoveredPreview: StartOnboardingPreview? {
+        guard isStepOneValid, isStepTwoValid else { return nil }
+        return builder.buildPreview(
+            input: resolvedInput,
+            capitalCoveragePolicy: .none
+        )
+    }
+
+    private var capitalCoveragePlan: StartCapitalCoveragePlan? {
+        guard let uncoveredPreview, let preview else { return nil }
+        return capitalCoveragePlanner.makePlan(
+            uncoveredPreview: uncoveredPreview,
+            projectedPreview: preview
+        )
     }
 
     private var resolvedInput: StartOnboardingInput {
@@ -587,19 +981,31 @@ struct StartOnboardingFlowView: View {
             creditMonthlyPayment: parsedDouble(creditPaymentInput),
             strategy: strategy,
             customCards: [],
-            selectedRecommendationKeys: Array(selectedRecommendationKeys).sorted { $0.rawValue < $1.rawValue }
+            selectedRecommendationKeys: Array(selectedRecommendationKeys).sorted { $0.rawValue < $1.rawValue },
+            goalTargetAmount: parsedDouble(goalTargetAmountInput),
+            foreignCurrency: foreignCurrency,
+            foreignCurrencyAmount: hasForeignCurrency
+                ? parsedDouble(foreignCurrencyAmountInput)
+                : 0
         )
     }
 
     private func parsedDouble(_ input: String) -> Double {
-        let normalized = input
-            .replacingOccurrences(of: " ", with: "")
-            .replacingOccurrences(of: ",", with: ".")
-        return Double(normalized) ?? 0
+        CurrencyInputFormatter.value(from: input)
     }
 
     private func currency(_ value: Double) -> String {
         AppCurrencyFormatter.string(value, currencyCode: "UAH")
+    }
+
+    private func cardCurrency(
+        _ value: Double,
+        descriptor: StartSystemCardDescriptor
+    ) -> String {
+        AppCurrencyFormatter.string(
+            value,
+            currencyCode: descriptor.balanceCurrencyCode ?? "UAH"
+        )
     }
 
     private func categoryBasePercentage(for allocation: CategoryAllocation) -> Double {
@@ -632,62 +1038,6 @@ struct StartOnboardingFlowView: View {
         return (subcategory.allocatedAmount / totalIncome) * 100.0
     }
 
-    private func onboardingCardExpansionKey(
-        categoryType: ExpenseCategoryType,
-        subcategory: SubcategoryAllocation
-    ) -> String {
-        let normalizedName = subcategory.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return "\(categoryType.rawValue)|\(subcategory.isSystem ? "system" : "custom")|\(normalizedName)|\(subcategory.iconName)"
-    }
-
-    private func toggleOnboardingCardExpansion(key: String) {
-        if expandedCardKeys.contains(key) {
-            expandedCardKeys.remove(key)
-        } else {
-            expandedCardKeys.insert(key)
-        }
-    }
-
-    private func cardDescription(for subcategory: SubcategoryAllocation) -> String? {
-        switch subcategory.name {
-        case "Жилье":
-            return housingType == .rented
-                ? "Аренда, коммунальные, ремонт, клининг..."
-                : "Коммунальные, ремонт, клининг..."
-        case "Питание":
-            return "Продукты, кафе, столовые, фастфуд..."
-        case "Здоровье":
-            return "Лекарства, витамины, бады, больницы, стоматология, пансионаты, процедуры"
-        case "Гигиена":
-            return "Парикмахерские, уход за телом и зубами..."
-        case "Дети":
-            return "Все детские расходы, кроме питания и здоровья"
-        case "Транспорт":
-            return hasCar ? "Бензин, ТО, ремонт, обслуживание, тюнинг" : "Общественный транспорт, такси"
-        case "Животные":
-            return "Корм, уход, ветврач"
-        case "Шоппинг", "Шопинг":
-            return "Торговые центы, одежда, любой вид покупок"
-        case "Хобби":
-            return "Затраты на любимое дело"
-        case "Развлечения", "Досуг":
-            return "Театры, прогулки, концерты, клубы..."
-        case "Путешествия", "Путешествие":
-            return "Поездки, билеты, отпуск"
-        case "Подарки":
-            return "Праздники, сюрпризы, внимание близким"
-        case "Спорт":
-            return "Зал, секции, инвентарь"
-        case "Подушка":
-            return "Финансовая продушка на 6 месяцев проживания"
-        case "Долг":
-            return "Создается при отрицательном капитале"
-        case "Кредит":
-            return "Создается при наличии ежемесячного платежа"
-        default:
-            return nil
-        }
-    }
 }
 
 private struct OnboardingDisplayedCard: Identifiable {

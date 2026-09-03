@@ -20,7 +20,7 @@ enum SetupHousingType: String, Codable, CaseIterable, Hashable, Identifiable {
         case .rented:
             return "Аренда + налоги"
         case .owned:
-            return "Налоги / обслуживание"
+            return "Налоги + обслуживание"
         }
     }
 }
@@ -122,6 +122,9 @@ struct StartOnboardingDraft: Hashable {
     var strategy: StartStrategyType = .stability
     var customCards: [StartCustomCardInput] = []
     var selectedRecommendationKeys: [SystemSubcategoryKey] = []
+    var goalTargetAmount: Double = 0
+    var foreignCurrency: ForeignCurrencyType = .usd
+    var foreignCurrencyAmount: Double = 0
 
     func resolvedInput() -> StartOnboardingInput {
         StartOnboardingInput(
@@ -138,7 +141,10 @@ struct StartOnboardingDraft: Hashable {
             creditMonthlyPayment: creditMonthlyPayment,
             strategy: strategy,
             customCards: customCards,
-            selectedRecommendationKeys: selectedRecommendationKeys
+            selectedRecommendationKeys: selectedRecommendationKeys,
+            goalTargetAmount: goalTargetAmount,
+            foreignCurrency: foreignCurrency,
+            foreignCurrencyAmount: foreignCurrencyAmount
         )
     }
 }
@@ -158,6 +164,9 @@ struct StartOnboardingInput: Codable, Hashable {
     let strategy: StartStrategyType
     let customCards: [StartCustomCardInput]
     let selectedRecommendationKeys: [SystemSubcategoryKey]
+    let goalTargetAmount: Double
+    let foreignCurrency: ForeignCurrencyType
+    let foreignCurrencyAmount: Double
 
     init(
         monthlyIncome: Double,
@@ -173,7 +182,10 @@ struct StartOnboardingInput: Codable, Hashable {
         creditMonthlyPayment: Double,
         strategy: StartStrategyType,
         customCards: [StartCustomCardInput],
-        selectedRecommendationKeys: [SystemSubcategoryKey] = []
+        selectedRecommendationKeys: [SystemSubcategoryKey] = [],
+        goalTargetAmount: Double = 0,
+        foreignCurrency: ForeignCurrencyType = .usd,
+        foreignCurrencyAmount: Double = 0
     ) {
         self.monthlyIncome = max(0, monthlyIncome)
         self.capital = capital
@@ -188,7 +200,17 @@ struct StartOnboardingInput: Codable, Hashable {
         self.creditMonthlyPayment = hasCredit ? max(0, creditMonthlyPayment) : 0
         self.strategy = strategy
         self.customCards = Self.normalizedCustomCards(customCards)
-        self.selectedRecommendationKeys = Array(Set(selectedRecommendationKeys)).sorted { $0.rawValue < $1.rawValue }
+        let normalizedGoalTargetAmount = max(0, goalTargetAmount)
+        self.goalTargetAmount = normalizedGoalTargetAmount
+        self.foreignCurrency = foreignCurrency
+        self.foreignCurrencyAmount = max(0, foreignCurrencyAmount)
+        var normalizedRecommendations = Set(selectedRecommendationKeys)
+        if self.foreignCurrencyAmount > 0 {
+            normalizedRecommendations.insert(.currency)
+        }
+        self.selectedRecommendationKeys = Array(normalizedRecommendations)
+            .filter { $0 != .goal || normalizedGoalTargetAmount > 0 }
+            .sorted { $0.rawValue < $1.rawValue }
     }
 
     var adultDependentsCount: Int {
@@ -207,6 +229,37 @@ struct StartOnboardingInput: Codable, Hashable {
         max(0, capital)
     }
 
+    func roundedForInitialFormation() -> StartOnboardingInput {
+        StartOnboardingInput(
+            monthlyIncome: Self.roundToWholeHryvnia(monthlyIncome),
+            capital: Self.roundToWholeHryvnia(capital),
+            housingType: housingType,
+            housingCost: Self.roundToWholeHryvnia(housingCost),
+            hasCar: hasCar,
+            dependentsCount: dependentsCount,
+            elderlyDependentsCount: elderlyDependentsCount,
+            childrenCount: childrenCount,
+            petsCount: petsCount,
+            hasCredit: hasCredit,
+            creditMonthlyPayment: Self.roundToWholeHryvnia(creditMonthlyPayment),
+            strategy: strategy,
+            customCards: customCards.map { customCard in
+                StartCustomCardInput(
+                    id: customCard.id,
+                    categoryType: customCard.categoryType,
+                    name: customCard.name,
+                    iconName: customCard.iconName,
+                    minLimit: Self.roundToWholeHryvnia(customCard.minLimit),
+                    percentage: customCard.percentage
+                )
+            },
+            selectedRecommendationKeys: selectedRecommendationKeys,
+            goalTargetAmount: Self.roundToWholeHryvnia(goalTargetAmount),
+            foreignCurrency: foreignCurrency,
+            foreignCurrencyAmount: Self.roundToWholeHryvnia(foreignCurrencyAmount)
+        )
+    }
+
     private static func normalizedCustomCards(_ source: [StartCustomCardInput]) -> [StartCustomCardInput] {
         var result: [StartCustomCardInput] = []
 
@@ -219,11 +272,18 @@ struct StartOnboardingInput: Codable, Hashable {
                 minLimit: item.minLimit,
                 percentage: item.percentage
             )
-            guard !normalized.name.isEmpty, normalized.minLimit > 0 else { continue }
+            guard !normalized.name.isEmpty,
+                  normalized.minLimit > 0 || normalized.percentage != nil else {
+                continue
+            }
             result.append(normalized)
         }
 
         return result
+    }
+
+    private static func roundToWholeHryvnia(_ value: Double) -> Double {
+        value.rounded()
     }
 }
 
@@ -237,6 +297,8 @@ struct StartSystemCardDescriptor: Identifiable, Hashable {
     let minLimit: Double
     let maxLimit: Double?
     let priority: SubcategoryPriorityLevel
+    let fundingMode: SubcategoryFundingMode
+    let balanceCurrencyCode: String?
     let isRecommended: Bool
     let isActive: Bool
 
@@ -257,6 +319,7 @@ struct StartOnboardingConfiguration: Codable, Hashable {
     let input: StartOnboardingInput
     let settings: BudgetSettings
     let categoryBudgets: [StartCategoryBudget]
+    let capitalCoveragePolicy: FreeCapitalCoveragePolicy
     let mandatoryLivingMonthly: Double
     let monthlyMinimumExcludingEmergency: Double
     let emergencyTarget: Double
@@ -264,6 +327,26 @@ struct StartOnboardingConfiguration: Codable, Hashable {
     let remainingFreeCapital: Double
     let freeCapitalCoverageMonths: Double?
     let totalDeficit: Double
+
+    var initialDistributionAmount: Double {
+        min(input.monthlyIncome, input.positiveCapital)
+    }
+
+    var initialDistributionShortfall: Double {
+        max(0, input.monthlyIncome - initialDistributionAmount)
+    }
+
+    var coversDeficitsFromFreeCapital: Bool {
+        capitalCoveragePolicy.isEnabled
+    }
+
+    var coversCardDeficitsFromFreeCapital: Bool {
+        capitalCoveragePolicy.coversCardDeficits
+    }
+
+    var fundsEmergencyFromFreeCapital: Bool {
+        capitalCoveragePolicy.coversEmergencyFund
+    }
 }
 
 struct StartOnboardingPreview: Hashable {

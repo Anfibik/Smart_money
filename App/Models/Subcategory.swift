@@ -1,5 +1,63 @@
 import Foundation
 
+enum SubcategoryPriorityLevel: Int, Codable, CaseIterable, Hashable, Identifiable {
+    case low = 1
+    case medium = 2
+    case high = 3
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .high: return "Высокий"
+        case .medium: return "Средний"
+        case .low: return "Низкий"
+        }
+    }
+}
+
+enum SubcategoryFundingMode: String, Codable, Hashable {
+    case automatic
+    case manualOnly
+}
+
+enum ForeignCurrencyType: String, Codable, CaseIterable, Hashable, Identifiable {
+    case usd = "USD"
+    case eur = "EUR"
+    case gbp = "GBP"
+    case chf = "CHF"
+    case pln = "PLN"
+    case cad = "CAD"
+    case jpy = "JPY"
+    case cny = "CNY"
+    case rub = "RUB"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .usd:
+            return "USD - Доллар США"
+        case .eur:
+            return "EUR - Евро"
+        case .gbp:
+            return "GBP - Фунт стерлингов"
+        case .chf:
+            return "CHF - Швейцарский франк"
+        case .pln:
+            return "PLN - Польский злотый"
+        case .cad:
+            return "CAD - Канадский доллар"
+        case .jpy:
+            return "JPY - Японская иена"
+        case .cny:
+            return "CNY - Китайский юань"
+        case .rub:
+            return "RUB - Российский рубль"
+        }
+    }
+}
+
 enum SystemSubcategoryKey: String, Codable, CaseIterable, Hashable {
     case housing
     case food
@@ -23,6 +81,18 @@ enum SystemSubcategoryKey: String, Codable, CaseIterable, Hashable {
     case investments
     case business
     case currency
+    case goal
+
+    /// Для этих базовых карточек минимальная сумма является обязательной
+    /// и не может быть отключена пользователем.
+    var requiresPermanentMinimumAmount: Bool {
+        switch self {
+        case .housing, .food, .emergencyFund:
+            return true
+        default:
+            return false
+        }
+    }
 
     var defaultName: String {
         switch self {
@@ -70,6 +140,8 @@ enum SystemSubcategoryKey: String, Codable, CaseIterable, Hashable {
             return "Бизнес"
         case .currency:
             return "Валюта"
+        case .goal:
+            return "Цель"
         }
     }
 
@@ -119,6 +191,8 @@ enum SystemSubcategoryKey: String, Codable, CaseIterable, Hashable {
             return "briefcase.fill"
         case .currency:
             return "dollarsign.arrow.circlepath"
+        case .goal:
+            return "target"
         }
     }
 
@@ -170,6 +244,8 @@ enum SystemSubcategoryKey: String, Codable, CaseIterable, Hashable {
             return .business
         case "валюта":
             return .currency
+        case "цель":
+            return .goal
         default:
             return nil
         }
@@ -180,6 +256,7 @@ struct Subcategory: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String
     var isSystem: Bool
+    var isRequired: Bool
     var systemKey: SystemSubcategoryKey?
     var iconName: String
 
@@ -192,11 +269,22 @@ struct Subcategory: Identifiable, Codable, Hashable {
     /// Минимальный лимит в деньгах (если есть)
     var minLimit: Double?
 
+    /// Нужно ли требовать заполненную минимальную сумму при сохранении карточки.
+    /// Само финансовое значение `minLimit` работает одинаково и для обязательного,
+    /// и для необязательного минимума.
+    var requiresMinimumAmount: Bool
+
     /// Максимальный лимит в деньгах (если есть)
     var maxLimit: Double?
 
     /// Приоритет для распределения (чем больше, тем выше приоритет)
     var priority: Int
+
+    /// Ручные карточки не участвуют в автоматическом распределении гривневого бюджета.
+    var fundingMode: SubcategoryFundingMode
+
+    /// Валюта остатка ручной карточки. Для обычных карточек используется валюта бюджета.
+    var balanceCurrencyCode: String?
 
     /// Уже потрачено в этой подкатегории
     var spentAmount: Double
@@ -205,19 +293,27 @@ struct Subcategory: Identifiable, Codable, Hashable {
         id: UUID = UUID(),
         name: String,
         isSystem: Bool = false,
+        isRequired: Bool? = nil,
         systemKey: SystemSubcategoryKey? = nil,
         iconName: String = SubcategoryIconCatalog.fallbackSymbol,
         percentage: Double,
         fixedMinimumPercentage: Double? = nil,
         minLimit: Double? = nil,
+        requiresMinimumAmount: Bool? = nil,
         maxLimit: Double? = nil,
         priority: Int = 1,
+        fundingMode: SubcategoryFundingMode = .automatic,
+        balanceCurrencyCode: String? = nil,
         spentAmount: Double = 0
     ) {
         self.id = id
         self.name = name
         self.isSystem = isSystem
         let resolvedSystemKey = systemKey ?? SystemSubcategoryKey.inferred(from: name, isSystem: isSystem)
+        self.isRequired = isRequired ?? Self.defaultRequiredState(
+            isSystem: isSystem,
+            systemKey: resolvedSystemKey
+        )
         self.systemKey = resolvedSystemKey
         let normalizedIcon = SubcategoryIconCatalog.normalized(iconName)
         if normalizedIcon == SubcategoryIconCatalog.fallbackSymbol,
@@ -226,25 +322,42 @@ struct Subcategory: Identifiable, Codable, Hashable {
         } else {
             self.iconName = normalizedIcon
         }
-        self.percentage = percentage
-        self.fixedMinimumPercentage = fixedMinimumPercentage
-        self.minLimit = minLimit
-        self.maxLimit = maxLimit
+        let isCurrencyCard = resolvedSystemKey == .currency
+        self.percentage = isCurrencyCard ? 0 : percentage
+        self.fixedMinimumPercentage = isCurrencyCard ? nil : fixedMinimumPercentage
+        self.minLimit = isCurrencyCard ? nil : minLimit
+        self.requiresMinimumAmount = !isCurrencyCard && (
+            resolvedSystemKey?.requiresPermanentMinimumAmount == true
+                || (requiresMinimumAmount ?? false)
+        )
+        self.maxLimit = isCurrencyCard ? nil : maxLimit
         self.priority = priority
+        self.fundingMode = isCurrencyCard ? .manualOnly : fundingMode
+        self.balanceCurrencyCode = isCurrencyCard
+            ? (balanceCurrencyCode ?? ForeignCurrencyType.usd.rawValue)
+            : balanceCurrencyCode
         self.spentAmount = spentAmount
+    }
+
+    var participatesInAutomaticAllocation: Bool {
+        fundingMode == .automatic
     }
 
     enum CodingKeys: String, CodingKey {
         case id
         case name
         case isSystem
+        case isRequired
         case systemKey
         case iconName
         case percentage
         case fixedMinimumPercentage
         case minLimit
+        case requiresMinimumAmount
         case maxLimit
         case priority
+        case fundingMode
+        case balanceCurrencyCode
         case spentAmount
     }
 
@@ -256,11 +369,21 @@ struct Subcategory: Identifiable, Codable, Hashable {
         isSystem = try container.decodeIfPresent(Bool.self, forKey: .isSystem) ?? false
         systemKey = try container.decodeIfPresent(SystemSubcategoryKey.self, forKey: .systemKey)
             ?? SystemSubcategoryKey.inferred(from: name, isSystem: isSystem)
+        isRequired = try container.decodeIfPresent(Bool.self, forKey: .isRequired)
+            ?? Self.defaultRequiredState(isSystem: isSystem, systemKey: systemKey)
         percentage = try container.decodeIfPresent(Double.self, forKey: .percentage) ?? 0
         fixedMinimumPercentage = try container.decodeIfPresent(Double.self, forKey: .fixedMinimumPercentage)
         minLimit = try container.decodeIfPresent(Double.self, forKey: .minLimit)
+        let decodedMinimumRequirement = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .requiresMinimumAmount
+        ) ?? false
+        requiresMinimumAmount = systemKey?.requiresPermanentMinimumAmount == true
+            || decodedMinimumRequirement
         maxLimit = try container.decodeIfPresent(Double.self, forKey: .maxLimit)
         priority = try container.decodeIfPresent(Int.self, forKey: .priority) ?? 1
+        fundingMode = try container.decodeIfPresent(SubcategoryFundingMode.self, forKey: .fundingMode) ?? .automatic
+        balanceCurrencyCode = try container.decodeIfPresent(String.self, forKey: .balanceCurrencyCode)
         spentAmount = try container.decodeIfPresent(Double.self, forKey: .spentAmount) ?? 0
 
         if let decodedIconName = try container.decodeIfPresent(String.self, forKey: .iconName) {
@@ -272,6 +395,16 @@ struct Subcategory: Identifiable, Codable, Hashable {
                 isSystem: isSystem
             )
         }
+
+        if systemKey == .currency {
+            percentage = 0
+            fixedMinimumPercentage = nil
+            minLimit = nil
+            requiresMinimumAmount = false
+            maxLimit = nil
+            fundingMode = .manualOnly
+            balanceCurrencyCode = balanceCurrencyCode ?? ForeignCurrencyType.usd.rawValue
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -279,14 +412,27 @@ struct Subcategory: Identifiable, Codable, Hashable {
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)
         try container.encode(isSystem, forKey: .isSystem)
+        try container.encode(isRequired, forKey: .isRequired)
         try container.encodeIfPresent(systemKey, forKey: .systemKey)
         try container.encode(iconName, forKey: .iconName)
         try container.encode(percentage, forKey: .percentage)
         try container.encodeIfPresent(fixedMinimumPercentage, forKey: .fixedMinimumPercentage)
         try container.encodeIfPresent(minLimit, forKey: .minLimit)
+        try container.encode(requiresMinimumAmount, forKey: .requiresMinimumAmount)
         try container.encodeIfPresent(maxLimit, forKey: .maxLimit)
         try container.encode(priority, forKey: .priority)
+        try container.encode(fundingMode, forKey: .fundingMode)
+        try container.encodeIfPresent(balanceCurrencyCode, forKey: .balanceCurrencyCode)
         try container.encode(spentAmount, forKey: .spentAmount)
+    }
+
+    private static func defaultRequiredState(
+        isSystem: Bool,
+        systemKey: SystemSubcategoryKey?
+    ) -> Bool {
+        guard isSystem else { return false }
+        guard let systemKey else { return true }
+        return SystemCardCatalog.standard.definition(for: systemKey).availability != .recommended
     }
 }
 
@@ -316,6 +462,7 @@ enum SubcategoryIconCatalog {
         "chart.line.uptrend.xyaxis",
         "briefcase.fill",
         "dollarsign.circle.fill",
+        "target",
         "fork.knife.circle.fill",
         "beach.umbrella.fill"
     ]

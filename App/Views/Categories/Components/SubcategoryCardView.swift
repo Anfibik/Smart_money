@@ -12,7 +12,6 @@ struct SubcategoryCardView: View {
 
     private enum CardState {
         case normal
-        case deficit
         case negative
     }
 
@@ -96,20 +95,20 @@ struct SubcategoryCardView: View {
             detailMetricRow(
                 title: "+",
                 value: currencyString(subcategory.monthlyIncomeDistributionAmount),
-                symbolColor: .green,
-                valueColor: .green
+                symbolColor: AppTheme.positive,
+                valueColor: AppTheme.positive
+            )
+            detailMetricRow(
+                title: "-",
+                value: currencyString(subcategory.monthlyExpenseAmount),
+                symbolColor: AppTheme.negative,
+                valueColor: AppTheme.negative
             )
             detailMetricRow(
                 title: "→←",
                 value: currencyString(subcategory.monthlyOtherIncomingAmount),
                 symbolColor: paleGreen,
                 valueColor: paleGreen
-            )
-            detailMetricRow(
-                title: "-",
-                value: currencyString(subcategory.monthlyExpenseAmount),
-                symbolColor: .red,
-                valueColor: .red
             )
             detailMetricRow(
                 title: "←→",
@@ -127,7 +126,7 @@ struct SubcategoryCardView: View {
 
     @ViewBuilder
     private var systemLockBadge: some View {
-        if subcategory.isSystem {
+        if subcategory.isRequired {
             Image(systemName: "lock.fill")
                 .font(.system(size: 8, weight: .bold))
                 .foregroundStyle(.secondary)
@@ -137,7 +136,7 @@ struct SubcategoryCardView: View {
                         .fill(AppTheme.cardBackground.opacity(0.92))
                 )
                 .padding(5)
-                .accessibilityLabel("Системная карточка")
+                .accessibilityLabel("Обязательная карточка")
         }
     }
 
@@ -158,10 +157,6 @@ struct SubcategoryCardView: View {
             return .negative
         }
 
-        if subcategory.deficitAmount > 0.01 {
-            return .deficit
-        }
-
         return .normal
     }
 
@@ -170,21 +165,19 @@ struct SubcategoryCardView: View {
     }
 
     private var paleGreen: Color {
-        .green.opacity(0.62)
+        AppTheme.positive.opacity(0.62)
     }
 
     private var paleRed: Color {
-        .red.opacity(0.62)
+        AppTheme.negative.opacity(0.62)
     }
 
     private var statusColor: Color {
         switch state {
         case .normal:
             return .primary
-        case .deficit:
-            return .orange
         case .negative:
-            return .red
+            return AppTheme.negative
         }
     }
 

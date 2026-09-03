@@ -19,7 +19,7 @@ struct CategoryExpandedContentView: View {
                     SubcategoryCardView(
                         subcategory: subcategory,
                         isDetailSideVisible: isDetailModeVisible,
-                        currencyCode: currencyCode,
+                        currencyCode: subcategory.balanceCurrencyCode ?? currencyCode,
                         onTap: { onSubcategoryTap(subcategory) },
                         onToggleDetailMode: { isDetailModeVisible.toggle() },
                         onLongPress: { onSubcategoryLongPress(subcategory) }
@@ -32,7 +32,7 @@ struct CategoryExpandedContentView: View {
                             .fill(canAddSubcategory ? AppTheme.cardBackground : AppTheme.disabledCardBackground)
                         Image(systemName: "plus")
                             .font(.title2.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(canAddSubcategory ? AppTheme.accent : .secondary)
                     }
                     .frame(maxWidth: .infinity, minHeight: 96, maxHeight: 96)
                 }
