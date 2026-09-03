@@ -197,6 +197,105 @@ final class BudgetStatisticsServiceTests: XCTestCase {
         XCTAssertEqual(years, [2026, 2025])
     }
 
+    func testDashboardStatisticsUseCurrentPeriodAndKeepCurrencySeparate() throws {
+        let now = makeDate(year: 2026, month: 3, day: 10)
+        let events = [
+            BudgetHistoryEvent(
+                createdAt: makeDate(year: 2026, month: 1, day: 5),
+                type: .income,
+                amount: 500,
+                currencyCode: "UAH"
+            ),
+            BudgetHistoryEvent(
+                createdAt: makeDate(year: 2026, month: 3, day: 2),
+                type: .income,
+                amount: 1_000,
+                currencyCode: "UAH"
+            ),
+            BudgetHistoryEvent(
+                createdAt: makeDate(year: 2026, month: 3, day: 3),
+                type: .expense,
+                amount: 200,
+                currencyCode: "UAH"
+            ),
+            BudgetHistoryEvent(
+                createdAt: makeDate(year: 2026, month: 3, day: 4),
+                type: .categoryReallocation,
+                amount: 400,
+                currencyCode: "UAH"
+            ),
+            BudgetHistoryEvent(
+                createdAt: makeDate(year: 2026, month: 3, day: 5),
+                type: .expense,
+                amount: 10,
+                currencyCode: "USD"
+            )
+        ]
+        let regularCard = makeCardBalance(
+            systemKey: .emergencyFund,
+            remainingAmount: 2_500
+        )
+        let debtCard = makeCardBalance(
+            systemKey: .debt,
+            maxLimit: 1_000,
+            spentAmount: 200,
+            remainingAmount: 400
+        )
+        let currencyCard = makeCardBalance(
+            systemKey: .currency,
+            currencyCode: "USD",
+            remainingAmount: 25
+        )
+        let balanceState = DashboardBalanceState(
+            bankAmount: 100,
+            cards: [regularCard, debtCard, currencyCard]
+        )
+
+        let month = service.buildDashboardStatistics(
+            from: events,
+            balanceState: balanceState,
+            currencyCode: "UAH",
+            period: .month,
+            now: now
+        )
+        let year = service.buildDashboardStatistics(
+            from: events,
+            balanceState: balanceState,
+            currencyCode: "UAH",
+            period: .year,
+            now: now
+        )
+
+        XCTAssertEqual(month.totalIncome, 1_000, accuracy: 0.0001)
+        XCTAssertEqual(month.totalExpense, 200, accuracy: 0.0001)
+        XCTAssertEqual(month.closingBalance, 3_000, accuracy: 0.0001)
+        XCTAssertEqual(month.openingBalance, 2_200, accuracy: 0.0001)
+        XCTAssertEqual(month.outstandingDebt, 800, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(month.currencyBalances.first).currencyCode, "USD")
+        XCTAssertEqual(try XCTUnwrap(month.currencyBalances.first).amount, 25, accuracy: 0.0001)
+
+        XCTAssertEqual(year.totalIncome, 1_500, accuracy: 0.0001)
+        XCTAssertEqual(year.totalExpense, 200, accuracy: 0.0001)
+        XCTAssertEqual(year.openingBalance, 1_700, accuracy: 0.0001)
+    }
+
+    private func makeCardBalance(
+        systemKey: SystemSubcategoryKey,
+        maxLimit: Double? = nil,
+        spentAmount: Double = 0,
+        currencyCode: String = "UAH",
+        remainingAmount: Double
+    ) -> DashboardCardBalance {
+        DashboardCardBalance(
+            systemKey: systemKey,
+            currencyCode: currencyCode,
+            remainingAmount: remainingAmount,
+            maxLimit: maxLimit,
+            minLimit: nil,
+            spentAmount: spentAmount,
+        )
+    }
+
     private func makeDate(year: Int, month: Int, day: Int, hour: Int = 0) -> Date {
         calendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour)) ?? Date()
     }

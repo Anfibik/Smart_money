@@ -1,5 +1,19 @@
 import SwiftUI
 
+enum DashboardDisplayMode: String, CaseIterable, Identifiable {
+    case categories
+    case statistics
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .categories: return "Категории"
+        case .statistics: return "Статистика"
+        }
+    }
+}
+
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var budgetViewModel = BudgetViewModel()
@@ -12,6 +26,9 @@ struct ContentView: View {
     @State private var isSideMenuOpen = false
     @State private var isShowingHistory = false
     @State private var isShowingHistoryAndStatistics = false
+    @State private var expandedCategoryIDs: Set<UUID> = []
+    @State private var dashboardDisplayMode: DashboardDisplayMode = .categories
+    @State private var didInitializeCategoryExpansion = false
     @AppStorage("has_completed_start_onboarding_v2") private var hasCompletedStartOnboarding = false
     @State private var isIncomeFieldFocused = false
 
@@ -22,15 +39,21 @@ struct ContentView: View {
                     AppTheme.appBackground
                         .ignoresSafeArea()
 
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 16) {
-                            incomeTopBar
+                    VStack(spacing: 0) {
+                        incomeTopBar
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 16)
+                            .background(AppTheme.appBackground)
 
+                        ScrollView {
                             CategoryAccordionView(
                                 distribution: budgetViewModel.distribution,
                                 currencyCode: budgetViewModel.settings.currencyCode,
                                 lastIncomeAmount: budgetViewModel.lastIncomeAmount,
                                 bankAvailableAmount: budgetViewModel.bankAvailableAmount,
+                                historyEvents: budgetViewModel.historyEvents,
+                                expandedCategoryIDs: $expandedCategoryIDs,
+                                displayMode: dashboardDisplayMode,
                                 availableRecommendedCards: { categoryType in
                                     budgetViewModel.availableRecommendedCards(for: categoryType)
                                 },
@@ -74,7 +97,7 @@ struct ContentView: View {
                                         fundingStrategy: fundingStrategy
                                     )
                                 },
-                                onAddSubcategory: { categoryType, name, iconName, percentage, minAmount, maxAmount, priority in
+                                onAddSubcategory: { categoryType, name, iconName, percentage, minAmount, maxAmount, priority, requiresMinimumAmount in
                                     budgetViewModel.addCustomSubcategory(
                                         categoryType: categoryType,
                                         name: name,
@@ -82,7 +105,8 @@ struct ContentView: View {
                                         percentage: percentage,
                                         minLimit: minAmount,
                                         maxLimit: maxAmount,
-                                        priority: priority
+                                        priority: priority,
+                                        requiresMinimumAmount: requiresMinimumAmount
                                     )
                                 },
                                 newSubcategoryCoverageRequirement: { categoryType, minAmount in
@@ -91,7 +115,7 @@ struct ContentView: View {
                                         minLimit: minAmount
                                     )
                                 },
-                                onAddSubcategoryWithAutomaticForcedCoverage: { categoryType, name, iconName, percentage, minAmount, maxAmount, priority in
+                                onAddSubcategoryWithAutomaticForcedCoverage: { categoryType, name, iconName, percentage, minAmount, maxAmount, priority, requiresMinimumAmount in
                                     budgetViewModel.addCustomSubcategoryWithAutomaticForcedCoverage(
                                         categoryType: categoryType,
                                         name: name,
@@ -99,10 +123,11 @@ struct ContentView: View {
                                         percentage: percentage,
                                         minLimit: minAmount,
                                         maxLimit: maxAmount,
-                                        priority: priority
+                                        priority: priority,
+                                        requiresMinimumAmount: requiresMinimumAmount
                                     )
                                 },
-                                onAddSubcategoryWithManualForcedCoverage: { categoryType, name, iconName, percentage, minAmount, maxAmount, priority, allocations in
+                                onAddSubcategoryWithManualForcedCoverage: { categoryType, name, iconName, percentage, minAmount, maxAmount, priority, requiresMinimumAmount, allocations in
                                     budgetViewModel.addCustomSubcategoryWithManualForcedCoverage(
                                         categoryType: categoryType,
                                         name: name,
@@ -111,10 +136,11 @@ struct ContentView: View {
                                         minLimit: minAmount,
                                         maxLimit: maxAmount,
                                         priority: priority,
-                                        allocations: allocations
+                                        allocations: allocations,
+                                        requiresMinimumAmount: requiresMinimumAmount
                                     )
                                 },
-                                onUpdateSubcategory: { categoryType, subcategoryID, name, iconName, percentage, minAmount, maxAmount, priority in
+                                onUpdateSubcategory: { categoryType, subcategoryID, name, iconName, percentage, minAmount, maxAmount, priority, requiresMinimumAmount in
                                     budgetViewModel.updateSubcategory(
                                         categoryType: categoryType,
                                         subcategoryID: subcategoryID,
@@ -123,7 +149,8 @@ struct ContentView: View {
                                         percentage: percentage,
                                         minLimit: minAmount,
                                         maxLimit: maxAmount,
-                                        priority: priority
+                                        priority: priority,
+                                        requiresMinimumAmount: requiresMinimumAmount
                                     )
                                 },
                                 onDeleteSubcategory: { categoryType, subcategoryID in
@@ -181,8 +208,10 @@ struct ContentView: View {
                                     )
                                 }
                             )
+                            .padding(.horizontal, 16)
+                            .padding(.top, 4)
+                            .padding(.bottom, 16)
                         }
-                        .padding()
                     }
                     .disabled(isSideMenuOpen)
 
@@ -257,6 +286,7 @@ struct ContentView: View {
         .onAppear {
             installMetadataService.registerFirstLaunchIfNeeded()
             bootstrapInitialSetupIfNeeded()
+            initializeCategoryExpansionIfNeeded()
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase != .active else { return }
@@ -277,10 +307,26 @@ struct ContentView: View {
             Button {
                 handleLeftIncomeButtonTap()
             } label: {
-                Image(systemName: isIncomeInputVisible ? "xmark.circle.fill" : "plus.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(.secondary)
+                if isIncomeInputVisible {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 44, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 56, height: 56)
+                } else {
+                    Image(systemName: "plus")
+                        .font(.system(size: 30, weight: .semibold))
+                        .foregroundStyle(AppTheme.positive)
+                        .frame(width: 44, height: 44)
+                        .background(AppTheme.appBackground)
+                        .clipShape(Circle())
+                        .overlay {
+                            Circle()
+                                .stroke(AppTheme.positive, lineWidth: 2)
+                        }
+                        .frame(width: 56, height: 56)
+                }
             }
+            .buttonStyle(.plain)
             .accessibilityLabel(isIncomeInputVisible ? "Скрыть ввод дохода" : "Показать ввод дохода")
             if isIncomeInputVisible {
                 CurrencyInput(
@@ -289,18 +335,46 @@ struct ContentView: View {
                     currencyCode: budgetViewModel.settings.currencyCode,
                     externalFocus: $isIncomeFieldFocused
                 )
+                    .frame(maxWidth: .infinity)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             } else {
-                Spacer(minLength: 0)
+                Spacer(minLength: 8)
+
+                Picker("Режим", selection: $dashboardDisplayMode) {
+                    ForEach(DashboardDisplayMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 210)
+                .accessibilityLabel("Режим главного экрана")
+
+                Spacer(minLength: 8)
             }
 
             Button {
                 handleRightTopButtonTap()
             } label: {
-                Image(systemName: shouldShowSubmitIncomeAction ? "checkmark.circle.fill" : "line.3.horizontal.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(shouldShowSubmitIncomeAction ? AppTheme.positive : .secondary)
+                if shouldShowSubmitIncomeAction {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 44, weight: .medium))
+                        .foregroundStyle(AppTheme.positive)
+                        .frame(width: 56, height: 56)
+                } else {
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(AppTheme.accent)
+                        .frame(width: 44, height: 44)
+                        .background(AppTheme.appBackground)
+                        .clipShape(Circle())
+                        .overlay {
+                            Circle()
+                                .stroke(AppTheme.accent, lineWidth: 2)
+                        }
+                        .frame(width: 56, height: 56)
+                }
             }
+            .buttonStyle(.plain)
             .accessibilityLabel(shouldShowSubmitIncomeAction ? "Подтвердить доход" : "Открыть меню")
         }
         .animation(.easeInOut(duration: 0.22), value: isIncomeInputVisible)
@@ -313,6 +387,14 @@ struct ContentView: View {
 
     private var hasIncomeDigits: Bool {
         CurrencyInputFormatter.value(from: incomeInput, allowsNegative: false) > 0
+    }
+
+    private var defaultExpandedCategoryIDs: Set<UUID> {
+        Set(
+            budgetViewModel.distribution.categoryAllocations
+                .filter { $0.type == .essentials }
+                .map(\.id)
+        )
     }
 
     private var sideMenuOverlayColor: Color {
@@ -328,7 +410,7 @@ struct ContentView: View {
             ),
             SideMenuItemDescriptor(
                 id: "statistics",
-                title: "Статистика",
+                title: "Бухгалтерия",
                 systemImage: "chart.bar.xaxis"
             )
         ]
@@ -348,6 +430,14 @@ struct ContentView: View {
         DispatchQueue.main.async {
             isIncomeFieldFocused = true
         }
+    }
+
+    private func initializeCategoryExpansionIfNeeded() {
+        guard !didInitializeCategoryExpansion else { return }
+        didInitializeCategoryExpansion = true
+
+        let initialIDs = defaultExpandedCategoryIDs
+        expandedCategoryIDs = initialIDs
     }
 
     private func handleRightTopButtonTap() {

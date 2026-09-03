@@ -6,6 +6,9 @@ struct CategoryAccordionView: View {
     let currencyCode: String
     let lastIncomeAmount: Double
     let bankAvailableAmount: Double
+    let historyEvents: [BudgetHistoryEvent]
+    @Binding var expandedCategoryIDs: Set<UUID>
+    let displayMode: DashboardDisplayMode
     let availableRecommendedCards: (ExpenseCategoryType) -> [RecommendedCardTemplate]
     let onPayExpense: (ExpenseCategoryType, UUID, Double, ExpenseFundingStrategy) -> Void
     let expenseCoverageRequirement: (ExpenseCategoryType, UUID, Double) -> CategoryCoverageRequirement?
@@ -19,7 +22,8 @@ struct CategoryAccordionView: View {
         Double,
         Double,
         Double,
-        SubcategoryPriorityLevel
+        SubcategoryPriorityLevel,
+        Bool
     ) -> Result<UUID, AddSubcategoryError>
     let newSubcategoryCoverageRequirement: (ExpenseCategoryType, Double) -> CategoryCoverageRequirement?
     let onAddSubcategoryWithAutomaticForcedCoverage: (
@@ -29,7 +33,8 @@ struct CategoryAccordionView: View {
         Double,
         Double,
         Double,
-        SubcategoryPriorityLevel
+        SubcategoryPriorityLevel,
+        Bool
     ) -> Result<UUID, AddSubcategoryError>
     let onAddSubcategoryWithManualForcedCoverage: (
         ExpenseCategoryType,
@@ -39,6 +44,7 @@ struct CategoryAccordionView: View {
         Double,
         Double,
         SubcategoryPriorityLevel,
+        Bool,
         [UUID: Double]
     ) -> Result<UUID, AddSubcategoryError>
     let onUpdateSubcategory: (
@@ -49,7 +55,8 @@ struct CategoryAccordionView: View {
         Double,
         Double,
         Double,
-        SubcategoryPriorityLevel
+        SubcategoryPriorityLevel,
+        Bool
     ) -> Void
     let onDeleteSubcategory: (ExpenseCategoryType, UUID) -> Void
     let onAddRecommendedSubcategory: (SystemSubcategoryKey) -> Void
@@ -66,7 +73,6 @@ struct CategoryAccordionView: View {
     let onUpdateManualCardCurrency: (ExpenseCategoryType, UUID, ForeignCurrencyType) -> Void
     let onConvertManualCardToFreeCapital: (ExpenseCategoryType, UUID, Double, Double) -> Void
 
-    @State private var expandedCategoryIDs: Set<UUID>
     @State private var expenseTarget: ExpenseTarget?
     @State private var addSubcategoryTarget: AddSubcategoryTarget?
     @State private var editSubcategoryTarget: EditSubcategoryTarget?
@@ -76,11 +82,13 @@ struct CategoryAccordionView: View {
     @State private var subcategoryPercentInput: String = ""
     @State private var subcategoryMinAmountInput: String = ""
     @State private var subcategoryMaxAmountInput: String = ""
+    @State private var subcategoryRequiresMinimumAmount = false
     @State private var subcategoryIconName: String = SubcategoryIconCatalog.selectableSymbols.first ?? SubcategoryIconCatalog.fallbackSymbol
     @State private var editNameInput: String = ""
     @State private var editPercentInput: String = ""
     @State private var editMinAmountInput: String = ""
     @State private var editMaxAmountInput: String = ""
+    @State private var editRequiresMinimumAmount = false
     @State private var editIconName: String = SubcategoryIconCatalog.selectableSymbols.first ?? SubcategoryIconCatalog.fallbackSymbol
     @State private var withdrawAmountInput: String = ""
     @State private var depositAmountInput: String = ""
@@ -89,6 +97,7 @@ struct CategoryAccordionView: View {
     @State private var depositUsesFreeCapital = false
     @State private var editForeignCurrency: ForeignCurrencyType = .usd
     @State private var suppressTapAfterLongPress: Bool = false
+    @State private var statisticsPeriod: DashboardStatisticsPeriod = .month
     @State private var addSubcategoryError: AddSubcategoryError?
 
     init(
@@ -96,6 +105,9 @@ struct CategoryAccordionView: View {
         currencyCode: String,
         lastIncomeAmount: Double,
         bankAvailableAmount: Double,
+        historyEvents: [BudgetHistoryEvent],
+        expandedCategoryIDs: Binding<Set<UUID>>,
+        displayMode: DashboardDisplayMode,
         availableRecommendedCards: @escaping (ExpenseCategoryType) -> [RecommendedCardTemplate],
         onPayExpense: @escaping (ExpenseCategoryType, UUID, Double, ExpenseFundingStrategy) -> Void,
         expenseCoverageRequirement: @escaping (ExpenseCategoryType, UUID, Double) -> CategoryCoverageRequirement?,
@@ -109,7 +121,8 @@ struct CategoryAccordionView: View {
             Double,
             Double,
             Double,
-            SubcategoryPriorityLevel
+            SubcategoryPriorityLevel,
+            Bool
         ) -> Result<UUID, AddSubcategoryError>,
         newSubcategoryCoverageRequirement: @escaping (ExpenseCategoryType, Double) -> CategoryCoverageRequirement?,
         onAddSubcategoryWithAutomaticForcedCoverage: @escaping (
@@ -119,7 +132,8 @@ struct CategoryAccordionView: View {
             Double,
             Double,
             Double,
-            SubcategoryPriorityLevel
+            SubcategoryPriorityLevel,
+            Bool
         ) -> Result<UUID, AddSubcategoryError>,
         onAddSubcategoryWithManualForcedCoverage: @escaping (
             ExpenseCategoryType,
@@ -129,6 +143,7 @@ struct CategoryAccordionView: View {
             Double,
             Double,
             SubcategoryPriorityLevel,
+            Bool,
             [UUID: Double]
         ) -> Result<UUID, AddSubcategoryError>,
         onUpdateSubcategory: @escaping (
@@ -139,7 +154,8 @@ struct CategoryAccordionView: View {
             Double,
             Double,
             Double,
-            SubcategoryPriorityLevel
+            SubcategoryPriorityLevel,
+            Bool
         ) -> Void,
         onDeleteSubcategory: @escaping (ExpenseCategoryType, UUID) -> Void,
         onAddRecommendedSubcategory: @escaping (SystemSubcategoryKey) -> Void,
@@ -160,6 +176,9 @@ struct CategoryAccordionView: View {
         self.currencyCode = currencyCode
         self.lastIncomeAmount = lastIncomeAmount
         self.bankAvailableAmount = bankAvailableAmount
+        self.historyEvents = historyEvents
+        _expandedCategoryIDs = expandedCategoryIDs
+        self.displayMode = displayMode
         self.availableRecommendedCards = availableRecommendedCards
         self.onPayExpense = onPayExpense
         self.expenseCoverageRequirement = expenseCoverageRequirement
@@ -180,84 +199,71 @@ struct CategoryAccordionView: View {
         self.onUpdateManualCardCurrency = onUpdateManualCardCurrency
         self.onConvertManualCardToFreeCapital = onConvertManualCardToFreeCapital
 
-        let essentialsID = distribution.categoryAllocations
-            .first(where: { $0.type == .essentials })?
-            .id
-        _expandedCategoryIDs = State(initialValue: Set([essentialsID].compactMap { $0 }))
     }
 
     private var hasExpandedCategory: Bool {
         distribution.categoryAllocations.contains { expandedCategoryIDs.contains($0.id) }
     }
 
+    private var isStatisticsMode: Bool {
+        displayMode == .statistics
+    }
+
     var body: some View {
         VStack(spacing: 8) {
-            ForEach(distribution.categoryAllocations) { category in
-                let automaticCards = category.subcategoryAllocations.filter(\.participatesInAutomaticAllocation)
-                let categoryRemaining = automaticCards.reduce(0) { $0 + $1.remainingAmount }
-                let categoryMonthlyIncome = automaticCards.reduce(0) { $0 + $1.monthlyIncomeAmount }
-                let categoryMonthlyExpense = automaticCards.reduce(0) { $0 + $1.monthlyExpenseAmount }
-                let categoryMonthlyOutgoing = automaticCards.reduce(0) { $0 + $1.monthlyOtherOutgoingAmount }
-                let categoryPreviousMonthBalance = max(
-                    0,
-                    categoryRemaining
-                        - categoryMonthlyIncome
-                        + categoryMonthlyExpense
-                        + categoryMonthlyOutgoing
-                )
-                let isCategoryExpanded = isExpanded(category.id)
+            if isStatisticsMode {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(currentMonthTitle)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(AppTheme.primaryText)
+                        .frame(maxWidth: .infinity, alignment: .center)
 
-                VStack(spacing: 0) {
-                    CategoryHeaderView(
-                        category: category,
-                        currencyCode: currencyCode,
-                        categoryRemaining: categoryRemaining,
-                        categoryMonthlyExpense: categoryMonthlyExpense,
-                        categoryMonthlyIncome: categoryMonthlyIncome,
-                        categoryPreviousMonthBalance: categoryPreviousMonthBalance,
-                        isExpanded: isCategoryExpanded,
-                        useCompactLayout: hasExpandedCategory,
-                        onTap: { toggle(categoryID: category.id) }
-                    )
+                    VStack(spacing: 8) {
+                        categoryRows
 
-                    if isCategoryExpanded {
-                        CategoryExpandedContentView(
-                            category: category,
-                            currencyCode: currencyCode,
-                            canAddSubcategory: maxAllowedPercentForAdd(categoryType: category.type) > 0,
-                            onSubcategoryTap: { subcategory in
-                                guard !suppressTapAfterLongPress else { return }
-                                openExpenseSheet(for: category.type, subcategory: subcategory)
-                            },
-                            onSubcategoryLongPress: { subcategory in
-                                suppressTapAfterLongPress = true
-                                openEditSubcategorySheet(for: category.type, subcategory: subcategory)
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                    suppressTapAfterLongPress = false
-                                }
-                            },
-                            onAddTap: {
-                                openAddSubcategorySheet(for: category)
-                            }
-                        )
-                        .transition(
-                            .asymmetric(
-                                insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)),
-                                removal: .opacity.combined(with: .scale(scale: 0.98, anchor: .top))
-                            )
+                        BankSummaryView(
+                            bankAvailableAmount: bankAvailableAmount,
+                            lines: distribution.lastBankAutoDistributions,
+                            currencyCode: currencyCode
                         )
                     }
                 }
-                .background(AppTheme.panelBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .padding(12)
+                .background(AppTheme.cardBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(AppTheme.mutedIcon.opacity(0.28), lineWidth: 1)
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.99, anchor: .top)))
+            } else {
+                categoryRows
             }
 
-            BankSummaryView(
-                bankAvailableAmount: bankAvailableAmount,
-                lines: distribution.lastBankAutoDistributions,
-                currencyCode: currencyCode
-            )
+            if !isStatisticsMode {
+                BankSummaryView(
+                    bankAvailableAmount: bankAvailableAmount,
+                    lines: distribution.lastBankAutoDistributions,
+                    currencyCode: currencyCode
+                )
+            }
+
+            if isStatisticsMode {
+                DashboardPeriodStatisticsView(
+                    period: $statisticsPeriod,
+                    statistics: BudgetStatisticsService().buildDashboardStatistics(
+                        from: historyEvents,
+                        balanceState: dashboardBalanceState,
+                        currencyCode: currencyCode,
+                        period: statisticsPeriod
+                    ),
+                    currencyCode: currencyCode
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
+        .animation(.easeInOut(duration: 0.2), value: displayMode)
+        .animation(.easeInOut(duration: 0.2), value: hasExpandedCategory)
         .sheet(item: $expenseTarget) { target in
             let coverageRequirement = expenseCoverageRequirement(
                 target.categoryType,
@@ -298,6 +304,7 @@ struct CategoryAccordionView: View {
                     editPercentInput: $editPercentInput,
                     editMinAmountInput: $editMinAmountInput,
                     editMaxAmountInput: $editMaxAmountInput,
+                    editRequiresMinimumAmount: $editRequiresMinimumAmount,
                     editIconName: $editIconName,
                     withdrawAmountInput: $withdrawAmountInput,
                     depositAmountInput: $depositAmountInput,
@@ -384,6 +391,7 @@ struct CategoryAccordionView: View {
                 subcategoryPercentInput: $subcategoryPercentInput,
                 subcategoryMinAmountInput: $subcategoryMinAmountInput,
                 subcategoryMaxAmountInput: $subcategoryMaxAmountInput,
+                subcategoryRequiresMinimumAmount: $subcategoryRequiresMinimumAmount,
                 subcategoryIconName: $subcategoryIconName,
                 canCreate: canCreateSubcategory,
                 onCreate: {
@@ -420,6 +428,7 @@ struct CategoryAccordionView: View {
                 editPercentInput: $editPercentInput,
                 editMinAmountInput: $editMinAmountInput,
                 editMaxAmountInput: $editMaxAmountInput,
+                editRequiresMinimumAmount: $editRequiresMinimumAmount,
                 editIconName: $editIconName,
                 withdrawAmountInput: $withdrawAmountInput,
                 depositAmountInput: $depositAmountInput,
@@ -470,6 +479,96 @@ struct CategoryAccordionView: View {
         }
     }
 
+    @ViewBuilder
+    private var categoryRows: some View {
+        ForEach(distribution.categoryAllocations) { category in
+            let automaticCards = category.subcategoryAllocations.filter(\.participatesInAutomaticAllocation)
+            let categoryRemaining = automaticCards.reduce(0) { $0 + $1.remainingAmount }
+            let categoryMonthlyIncome = automaticCards.reduce(0) { $0 + $1.monthlyIncomeAmount }
+            let categoryMonthlyExpense = automaticCards.reduce(0) { $0 + $1.monthlyExpenseAmount }
+            let categoryMonthlyOutgoing = automaticCards.reduce(0) { $0 + $1.monthlyOtherOutgoingAmount }
+            let categoryPreviousMonthBalance = max(
+                0,
+                categoryRemaining
+                    - categoryMonthlyIncome
+                    + categoryMonthlyExpense
+                    + categoryMonthlyOutgoing
+            )
+            let isCategoryExpanded = isExpanded(category.id)
+
+            VStack(spacing: 0) {
+                CategoryHeaderView(
+                    category: category,
+                    currencyCode: currencyCode,
+                    categoryRemaining: categoryRemaining,
+                    categoryMonthlyExpense: categoryMonthlyExpense,
+                    categoryMonthlyIncome: categoryMonthlyIncome,
+                    categoryPreviousMonthBalance: categoryPreviousMonthBalance,
+                    isExpanded: isCategoryExpanded,
+                    useCompactLayout: !isStatisticsMode,
+                    isInteractive: !isStatisticsMode,
+                    onTap: { toggle(categoryID: category.id) }
+                )
+
+                if !isStatisticsMode && isCategoryExpanded {
+                    CategoryExpandedContentView(
+                        category: category,
+                        currencyCode: currencyCode,
+                        canAddSubcategory: maxAllowedPercentForAdd(categoryType: category.type) > 0,
+                        onSubcategoryTap: { subcategory in
+                            guard !suppressTapAfterLongPress else { return }
+                            openExpenseSheet(for: category.type, subcategory: subcategory)
+                        },
+                        onSubcategoryLongPress: { subcategory in
+                            suppressTapAfterLongPress = true
+                            openEditSubcategorySheet(for: category.type, subcategory: subcategory)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                suppressTapAfterLongPress = false
+                            }
+                        },
+                        onAddTap: {
+                            openAddSubcategorySheet(for: category)
+                        }
+                    )
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)),
+                            removal: .opacity.combined(with: .scale(scale: 0.98, anchor: .top))
+                        )
+                    )
+                }
+            }
+            .background(AppTheme.panelBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
+    private var currentMonthTitle: String {
+        let locale = Locale(identifier: "ru_RU")
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.dateFormat = "LLLL yyyy"
+        return formatter.string(from: Date()).capitalized(with: locale)
+    }
+
+    private var dashboardBalanceState: DashboardBalanceState {
+        DashboardBalanceState(
+            bankAmount: distribution.bankAmount,
+            cards: distribution.categoryAllocations
+                .flatMap(\.subcategoryAllocations)
+                .map { subcategory in
+                    DashboardCardBalance(
+                        systemKey: subcategory.systemKey,
+                        currencyCode: subcategory.balanceCurrencyCode ?? currencyCode,
+                        remainingAmount: subcategory.remainingAmount,
+                        maxLimit: subcategory.maxLimit,
+                        minLimit: subcategory.minLimit,
+                        spentAmount: subcategory.spentAmount
+                    )
+                }
+        )
+    }
+
     private func isExpanded(_ id: UUID) -> Bool {
         expandedCategoryIDs.contains(id)
     }
@@ -493,7 +592,7 @@ struct CategoryAccordionView: View {
         return !normalizedName.isEmpty
             && normalizedPercent > 0
             && normalizedPercent <= freePercent
-            && normalizedMinAmount > 0
+            && (!subcategoryRequiresMinimumAmount || normalizedMinAmount > 0)
             && (coverageRequirement?.canCover != false)
     }
 
@@ -503,10 +602,12 @@ struct CategoryAccordionView: View {
         }
         let normalizedName = editNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedPercent = nonNegativeValue(from: editPercentInput)
+        let normalizedMinAmount = nonNegativeValue(from: editMinAmountInput)
         let availableForCard = maxAllowedPercentForEdit(target: target)
         return !normalizedName.isEmpty
             && normalizedPercent > 0
             && normalizedPercent <= availableForCard
+            && (!editRequiresMinimumAmount || normalizedMinAmount > 0)
     }
 
     private func openExpenseSheet(for categoryType: ExpenseCategoryType, subcategory: SubcategoryAllocation) {
@@ -532,6 +633,7 @@ struct CategoryAccordionView: View {
     ) -> EditSubcategoryTarget {
         editNameInput = subcategory.name
         editIconName = subcategory.iconName
+        editRequiresMinimumAmount = subcategory.requiresMinimumAmount
         editPercentInput = String(format: "%.2f", subcategory.basePercentage).replacingOccurrences(of: ".00", with: "")
         if let minLimit = subcategory.minLimit, minLimit > 0 {
             editMinAmountInput = String(format: "%.2f", minLimit).replacingOccurrences(of: ".00", with: "")
@@ -556,6 +658,7 @@ struct CategoryAccordionView: View {
             subcategoryName: subcategory.name,
             isSystem: subcategory.isSystem,
             isRequired: subcategory.isRequired,
+            minimumRequirementIsLocked: subcategory.systemKey?.requiresPermanentMinimumAmount == true,
             fundingMode: subcategory.fundingMode,
             currencyCode: subcategory.balanceCurrencyCode ?? currencyCode
         )
@@ -566,6 +669,7 @@ struct CategoryAccordionView: View {
         subcategoryPercentInput = ""
         subcategoryMinAmountInput = ""
         subcategoryMaxAmountInput = ""
+        subcategoryRequiresMinimumAmount = false
         subcategoryIconName = SubcategoryIconCatalog.selectableSymbols.first ?? SubcategoryIconCatalog.fallbackSymbol
         addSubcategoryTarget = AddSubcategoryTarget(id: category.id, type: category.type, title: category.type.title)
     }
@@ -579,7 +683,7 @@ struct CategoryAccordionView: View {
         guard !name.isEmpty,
               mainPercent > 0,
               mainPercent <= freePercent,
-              minAmount > 0,
+              (!subcategoryRequiresMinimumAmount || minAmount > 0),
               coverageRequirement == nil else { return }
 
         let maxAmount = nonNegativeValue(from: subcategoryMaxAmountInput)
@@ -591,7 +695,8 @@ struct CategoryAccordionView: View {
             mainPercent,
             minAmount,
             maxAmount,
-            .low
+            .low,
+            subcategoryRequiresMinimumAmount
         ))
     }
 
@@ -616,7 +721,8 @@ struct CategoryAccordionView: View {
             mainPercent,
             minAmount,
             maxAmount,
-            .low
+            .low,
+            subcategoryRequiresMinimumAmount
         ))
     }
 
@@ -645,6 +751,7 @@ struct CategoryAccordionView: View {
             minAmount,
             maxAmount,
             .low,
+            subcategoryRequiresMinimumAmount,
             allocations
         ))
     }
@@ -676,7 +783,8 @@ struct CategoryAccordionView: View {
         let minAmount = nonNegativeValue(from: editMinAmountInput)
         guard !name.isEmpty,
               mainPercent > 0,
-              mainPercent <= availableForCard else { return }
+              mainPercent <= availableForCard,
+              (!editRequiresMinimumAmount || minAmount > 0) else { return }
 
         let maxAmount = nonNegativeValue(from: editMaxAmountInput)
 
@@ -688,7 +796,8 @@ struct CategoryAccordionView: View {
             mainPercent,
             minAmount,
             maxAmount,
-            .low
+            .low,
+            editRequiresMinimumAmount
         )
         if closesStandaloneSheet {
             editSubcategoryTarget = nil
@@ -859,6 +968,7 @@ struct EditSubcategoryTarget: Identifiable {
     let subcategoryName: String
     let isSystem: Bool
     let isRequired: Bool
+    let minimumRequirementIsLocked: Bool
     let fundingMode: SubcategoryFundingMode
     let currencyCode: String
 

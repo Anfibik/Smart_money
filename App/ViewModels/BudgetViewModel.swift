@@ -92,7 +92,7 @@ enum AddSubcategoryError: String, Error, Identifiable {
     var userMessage: String {
         switch self {
         case .invalidParameters:
-            return "Проверьте название, процент и минимальную сумму карточки."
+            return "Проверьте название, процент и обязательные поля карточки."
         case .categoryNotFound:
             return "Категория больше недоступна. Закройте форму и попробуйте снова."
         case .percentageLimitExceeded:
@@ -819,7 +819,8 @@ final class BudgetViewModel: ObservableObject {
         percentage: Double,
         minLimit: Double,
         maxLimit: Double,
-        priority: SubcategoryPriorityLevel
+        priority: SubcategoryPriorityLevel,
+        requiresMinimumAmount: Bool = false
     ) -> Result<UUID, AddSubcategoryError> {
         performAddCustomSubcategory(
             categoryType: categoryType,
@@ -829,6 +830,7 @@ final class BudgetViewModel: ObservableObject {
             minLimit: minLimit,
             maxLimit: maxLimit,
             priority: priority,
+            requiresMinimumAmount: requiresMinimumAmount,
             forcedAllocations: nil,
             useAutomaticForcedCoverage: false
         )
@@ -878,7 +880,8 @@ final class BudgetViewModel: ObservableObject {
         percentage: Double,
         minLimit: Double,
         maxLimit: Double,
-        priority: SubcategoryPriorityLevel
+        priority: SubcategoryPriorityLevel,
+        requiresMinimumAmount: Bool = false
     ) -> Result<UUID, AddSubcategoryError> {
         performAddCustomSubcategory(
             categoryType: categoryType,
@@ -888,6 +891,7 @@ final class BudgetViewModel: ObservableObject {
             minLimit: minLimit,
             maxLimit: maxLimit,
             priority: priority,
+            requiresMinimumAmount: requiresMinimumAmount,
             forcedAllocations: nil,
             useAutomaticForcedCoverage: true
         )
@@ -902,7 +906,8 @@ final class BudgetViewModel: ObservableObject {
         minLimit: Double,
         maxLimit: Double,
         priority: SubcategoryPriorityLevel,
-        allocations: [UUID: Double]
+        allocations: [UUID: Double],
+        requiresMinimumAmount: Bool = false
     ) -> Result<UUID, AddSubcategoryError> {
         performAddCustomSubcategory(
             categoryType: categoryType,
@@ -912,6 +917,7 @@ final class BudgetViewModel: ObservableObject {
             minLimit: minLimit,
             maxLimit: maxLimit,
             priority: priority,
+            requiresMinimumAmount: requiresMinimumAmount,
             forcedAllocations: allocations,
             useAutomaticForcedCoverage: false
         )
@@ -925,7 +931,8 @@ final class BudgetViewModel: ObservableObject {
         percentage: Double,
         minLimit: Double,
         maxLimit: Double,
-        priority: SubcategoryPriorityLevel
+        priority: SubcategoryPriorityLevel,
+        requiresMinimumAmount: Bool? = nil
     ) {
         guard let categoryIndex = settings.categories.firstIndex(where: { $0.type == categoryType }) else { return }
         guard let subIndex = settings.categories[categoryIndex].subcategories.firstIndex(where: { $0.id == subcategoryID }) else { return }
@@ -946,6 +953,9 @@ final class BudgetViewModel: ObservableObject {
 
         var normalizedMaxLimit = max(0, maxLimit)
         var requestedMinLimit = max(0, minLimit)
+        let effectiveMinimumRequirement = sub.systemKey?.requiresPermanentMinimumAmount == true
+            || (requiresMinimumAmount ?? sub.requiresMinimumAmount)
+        guard !effectiveMinimumRequirement || requestedMinLimit > 0 else { return }
 
         if normalizedMaxLimit > 0, requestedMinLimit > normalizedMaxLimit {
             requestedMinLimit = normalizedMaxLimit
@@ -967,6 +977,7 @@ final class BudgetViewModel: ObservableObject {
         sub.percentage = normalizedPercentage
         sub.fixedMinimumPercentage = nil
         sub.minLimit = finalMinLimit > 0 ? finalMinLimit : nil
+        sub.requiresMinimumAmount = effectiveMinimumRequirement
         sub.maxLimit = normalizedMaxLimit > 0 ? normalizedMaxLimit : nil
         settings.categories[categoryIndex].subcategories[subIndex] = sub
         normalizePriorityRules()
@@ -1451,6 +1462,7 @@ final class BudgetViewModel: ObservableObject {
         minLimit: Double,
         maxLimit: Double,
         priority: SubcategoryPriorityLevel,
+        requiresMinimumAmount: Bool,
         forcedAllocations: [UUID: Double]?,
         useAutomaticForcedCoverage: Bool
     ) -> Result<UUID, AddSubcategoryError> {
@@ -1459,7 +1471,7 @@ final class BudgetViewModel: ObservableObject {
         let requestedMinLimit = max(0, minLimit)
         guard !trimmedName.isEmpty,
               normalizedPercentage > 0,
-              requestedMinLimit > 0 else {
+              (!requiresMinimumAmount || requestedMinLimit > 0) else {
             return .failure(.invalidParameters)
         }
         guard let categoryIndex = settings.categories.firstIndex(where: { $0.type == categoryType }) else {
@@ -1510,6 +1522,7 @@ final class BudgetViewModel: ObservableObject {
             percentage: normalizedPercentage,
             fixedMinimumPercentage: nil,
             minLimit: normalizedMinLimit > 0 ? normalizedMinLimit : nil,
+            requiresMinimumAmount: requiresMinimumAmount,
             maxLimit: normalizedMaxLimit > 0 ? normalizedMaxLimit : nil,
             priority: SubcategoryPriorityLevel.low.rawValue
         )
@@ -1967,6 +1980,7 @@ final class BudgetViewModel: ObservableObject {
                     basePercentage: subcategory.percentage,
                     fixedMinimumPercentage: subcategory.fixedMinimumPercentage,
                     minLimit: subcategory.minLimit,
+                    requiresMinimumAmount: subcategory.requiresMinimumAmount,
                     maxLimit: subcategory.maxLimit,
                     priority: subcategory.priority,
                     fundingMode: subcategory.fundingMode,

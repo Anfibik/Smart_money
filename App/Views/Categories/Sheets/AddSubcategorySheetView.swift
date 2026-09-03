@@ -13,6 +13,7 @@ struct AddSubcategorySheetView: View {
     @Binding var subcategoryPercentInput: String
     @Binding var subcategoryMinAmountInput: String
     @Binding var subcategoryMaxAmountInput: String
+    @Binding var subcategoryRequiresMinimumAmount: Bool
     @Binding var subcategoryIconName: String
 
     let canCreate: Bool
@@ -88,12 +89,25 @@ struct AddSubcategorySheetView: View {
                             .foregroundStyle(AppTheme.negative)
                     }
 
+                    Toggle(
+                        "Обязательная минимальная сумма",
+                        isOn: $subcategoryRequiresMinimumAmount
+                    )
+
                     CurrencyInput(
                         text: $subcategoryMinAmountInput,
-                        placeholder: "Минимальная сумма",
+                        placeholder: subcategoryRequiresMinimumAmount
+                            ? "Минимальная сумма*"
+                            : "Минимальная сумма (необязательно)",
                         currencyCode: currencyCode,
                         showsDoneButton: false
                     )
+
+                    if subcategoryRequiresMinimumAmount, requestedMinAmount <= 0 {
+                        Text("Укажите минимальную сумму, чтобы добавить карточку.")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.negative)
+                    }
 
                     CurrencyInput(
                         text: $subcategoryMaxAmountInput,

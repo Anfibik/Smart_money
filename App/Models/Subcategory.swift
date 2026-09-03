@@ -83,6 +83,17 @@ enum SystemSubcategoryKey: String, Codable, CaseIterable, Hashable {
     case currency
     case goal
 
+    /// Для этих базовых карточек минимальная сумма является обязательной
+    /// и не может быть отключена пользователем.
+    var requiresPermanentMinimumAmount: Bool {
+        switch self {
+        case .housing, .food, .emergencyFund:
+            return true
+        default:
+            return false
+        }
+    }
+
     var defaultName: String {
         switch self {
         case .housing:
@@ -258,6 +269,11 @@ struct Subcategory: Identifiable, Codable, Hashable {
     /// Минимальный лимит в деньгах (если есть)
     var minLimit: Double?
 
+    /// Нужно ли требовать заполненную минимальную сумму при сохранении карточки.
+    /// Само финансовое значение `minLimit` работает одинаково и для обязательного,
+    /// и для необязательного минимума.
+    var requiresMinimumAmount: Bool
+
     /// Максимальный лимит в деньгах (если есть)
     var maxLimit: Double?
 
@@ -283,6 +299,7 @@ struct Subcategory: Identifiable, Codable, Hashable {
         percentage: Double,
         fixedMinimumPercentage: Double? = nil,
         minLimit: Double? = nil,
+        requiresMinimumAmount: Bool? = nil,
         maxLimit: Double? = nil,
         priority: Int = 1,
         fundingMode: SubcategoryFundingMode = .automatic,
@@ -309,6 +326,10 @@ struct Subcategory: Identifiable, Codable, Hashable {
         self.percentage = isCurrencyCard ? 0 : percentage
         self.fixedMinimumPercentage = isCurrencyCard ? nil : fixedMinimumPercentage
         self.minLimit = isCurrencyCard ? nil : minLimit
+        self.requiresMinimumAmount = !isCurrencyCard && (
+            resolvedSystemKey?.requiresPermanentMinimumAmount == true
+                || (requiresMinimumAmount ?? false)
+        )
         self.maxLimit = isCurrencyCard ? nil : maxLimit
         self.priority = priority
         self.fundingMode = isCurrencyCard ? .manualOnly : fundingMode
@@ -332,6 +353,7 @@ struct Subcategory: Identifiable, Codable, Hashable {
         case percentage
         case fixedMinimumPercentage
         case minLimit
+        case requiresMinimumAmount
         case maxLimit
         case priority
         case fundingMode
@@ -352,6 +374,12 @@ struct Subcategory: Identifiable, Codable, Hashable {
         percentage = try container.decodeIfPresent(Double.self, forKey: .percentage) ?? 0
         fixedMinimumPercentage = try container.decodeIfPresent(Double.self, forKey: .fixedMinimumPercentage)
         minLimit = try container.decodeIfPresent(Double.self, forKey: .minLimit)
+        let decodedMinimumRequirement = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .requiresMinimumAmount
+        ) ?? false
+        requiresMinimumAmount = systemKey?.requiresPermanentMinimumAmount == true
+            || decodedMinimumRequirement
         maxLimit = try container.decodeIfPresent(Double.self, forKey: .maxLimit)
         priority = try container.decodeIfPresent(Int.self, forKey: .priority) ?? 1
         fundingMode = try container.decodeIfPresent(SubcategoryFundingMode.self, forKey: .fundingMode) ?? .automatic
@@ -372,6 +400,7 @@ struct Subcategory: Identifiable, Codable, Hashable {
             percentage = 0
             fixedMinimumPercentage = nil
             minLimit = nil
+            requiresMinimumAmount = false
             maxLimit = nil
             fundingMode = .manualOnly
             balanceCurrencyCode = balanceCurrencyCode ?? ForeignCurrencyType.usd.rawValue
@@ -389,6 +418,7 @@ struct Subcategory: Identifiable, Codable, Hashable {
         try container.encode(percentage, forKey: .percentage)
         try container.encodeIfPresent(fixedMinimumPercentage, forKey: .fixedMinimumPercentage)
         try container.encodeIfPresent(minLimit, forKey: .minLimit)
+        try container.encode(requiresMinimumAmount, forKey: .requiresMinimumAmount)
         try container.encodeIfPresent(maxLimit, forKey: .maxLimit)
         try container.encode(priority, forKey: .priority)
         try container.encode(fundingMode, forKey: .fundingMode)

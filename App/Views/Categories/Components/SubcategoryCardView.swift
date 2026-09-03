@@ -12,7 +12,6 @@ struct SubcategoryCardView: View {
 
     private enum CardState {
         case normal
-        case deficit
         case negative
     }
 
@@ -158,10 +157,6 @@ struct SubcategoryCardView: View {
             return .negative
         }
 
-        if subcategory.deficitAmount > 0.01 {
-            return .deficit
-        }
-
         return .normal
     }
 
@@ -181,8 +176,6 @@ struct SubcategoryCardView: View {
         switch state {
         case .normal:
             return .primary
-        case .deficit:
-            return AppTheme.warning
         case .negative:
             return AppTheme.negative
         }

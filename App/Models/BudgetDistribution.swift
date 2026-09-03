@@ -10,6 +10,7 @@ struct SubcategoryAllocation: Identifiable, Hashable {
     let basePercentage: Double
     let fixedMinimumPercentage: Double?
     let minLimit: Double?
+    let requiresMinimumAmount: Bool
     let maxLimit: Double?
     let priority: Int
     let fundingMode: SubcategoryFundingMode

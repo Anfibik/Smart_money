@@ -616,6 +616,7 @@ struct StartOnboardingBuilder {
                     basePercentage: subcategory.percentage,
                     fixedMinimumPercentage: subcategory.fixedMinimumPercentage,
                     minLimit: subcategory.minLimit,
+                    requiresMinimumAmount: subcategory.requiresMinimumAmount,
                     maxLimit: subcategory.maxLimit,
                     priority: subcategory.priority,
                     fundingMode: subcategory.fundingMode,

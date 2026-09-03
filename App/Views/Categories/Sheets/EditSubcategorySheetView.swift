@@ -16,6 +16,7 @@ struct EditSubcategorySheetView: View {
     @Binding var editPercentInput: String
     @Binding var editMinAmountInput: String
     @Binding var editMaxAmountInput: String
+    @Binding var editRequiresMinimumAmount: Bool
     @Binding var editIconName: String
     @Binding var withdrawAmountInput: String
     @Binding var depositAmountInput: String
@@ -366,12 +367,33 @@ struct EditSubcategorySheetView: View {
                     .foregroundStyle(AppTheme.negative)
             }
 
+            Toggle(
+                "Обязательная минимальная сумма",
+                isOn: $editRequiresMinimumAmount
+            )
+            .disabled(target.minimumRequirementIsLocked)
+
+            if target.minimumRequirementIsLocked {
+                Text("Для карточек «Жилье», «Питание» и «Подушка» обязательный минимум нельзя отключить.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             CurrencyInput(
                 text: $editMinAmountInput,
-                placeholder: "Минимальная сумма",
+                placeholder: editRequiresMinimumAmount
+                    ? "Минимальная сумма*"
+                    : "Минимальная сумма (необязательно)",
                 currencyCode: currencyCode,
                 showsDoneButton: false
             )
+
+            if editRequiresMinimumAmount,
+               nonNegativeValue(from: editMinAmountInput) <= 0 {
+                Text("Укажите минимальную сумму, чтобы сохранить карточку.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.negative)
+            }
             CurrencyInput(
                 text: $editMaxAmountInput,
                 placeholder: "Максимальная сумма",

@@ -115,6 +115,85 @@ final class BudgetStatisticsService {
         )
     }
 
+    func buildDashboardStatistics(
+        from events: [BudgetHistoryEvent],
+        balanceState: DashboardBalanceState,
+        currencyCode: String,
+        period: DashboardStatisticsPeriod,
+        now: Date = Date()
+    ) -> DashboardPeriodStatistics {
+        let periodEvents = currentPeriodEvents(from: events, period: period, now: now)
+            .filter { $0.currencyCode == currencyCode }
+        let summary = buildSummary(from: periodEvents)
+
+        let hryvniaCardBalance = balanceState.cards
+            .filter { card in
+                card.currencyCode == currencyCode
+            }
+            .reduce(0.0) { $0 + $1.remainingAmount }
+        let closingBalance = roundToCents(balanceState.bankAmount + hryvniaCardBalance)
+        let openingBalance = roundToCents(
+            closingBalance - summary.totalIncome + summary.totalExpense
+        )
+
+        let outstandingDebt = balanceState.cards
+            .filter { $0.systemKey == .debt }
+            .reduce(0.0) { result, debt in
+                let target = debt.maxLimit ?? debt.minLimit ?? 0
+                return result + max(0, target - debt.spentAmount)
+            }
+        let currencyBalances = Dictionary(
+            grouping: balanceState.cards.filter { card in
+                card.currencyCode != currencyCode
+            },
+            by: \.currencyCode
+        )
+        .map { code, cards in
+            DashboardCurrencyBalance(
+                currencyCode: code,
+                amount: roundToCents(cards.reduce(0.0) { $0 + $1.remainingAmount })
+            )
+        }
+        .sorted { $0.currencyCode < $1.currencyCode }
+
+        return DashboardPeriodStatistics(
+            totalIncome: summary.totalIncome,
+            totalExpense: summary.totalExpense,
+            openingBalance: openingBalance,
+            closingBalance: closingBalance,
+            outstandingDebt: roundToCents(outstandingDebt),
+            currencyBalances: currencyBalances
+        )
+    }
+
+    private func currentPeriodEvents(
+        from events: [BudgetHistoryEvent],
+        period: DashboardStatisticsPeriod,
+        now: Date
+    ) -> [BudgetHistoryEvent] {
+        let start: Date
+        let end: Date
+
+        switch period {
+        case .month:
+            start = startOfMonth(for: now)
+            guard let nextMonth = calendar.date(byAdding: .month, value: 1, to: start) else {
+                return []
+            }
+            end = nextMonth
+        case .year:
+            let year = calendar.component(.year, from: now)
+            guard let yearStart = calendar.date(from: DateComponents(year: year, month: 1, day: 1)),
+                  let nextYear = calendar.date(byAdding: .year, value: 1, to: yearStart) else {
+                return []
+            }
+            start = yearStart
+            end = nextYear
+        }
+
+        return events.filter { $0.createdAt >= start && $0.createdAt < end }
+    }
+
     private func buildExpenseByCategory(
         from expenseEvents: [BudgetHistoryEvent],
         totalExpense: Double

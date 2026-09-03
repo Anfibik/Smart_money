@@ -1,5 +1,45 @@
 import XCTest
 final class BudgetAllocationEngineTests: XCTestCase {
+    func testMinimumRequirementMigratesByPermanentSystemCardRule() throws {
+        for systemKey in [SystemSubcategoryKey.housing, .food, .emergencyFund] {
+            let json = """
+            {"name":"Card","isSystem":true,"systemKey":"\(systemKey.rawValue)","percentage":25,"minLimit":100}
+            """.data(using: .utf8)!
+
+            let card = try JSONDecoder().decode(Subcategory.self, from: json)
+            XCTAssertTrue(card.requiresMinimumAmount, "\(systemKey.rawValue) must keep a permanent minimum requirement")
+        }
+
+        let wantsJSON = """
+        {"name":"Хобби","isSystem":true,"systemKey":"hobby","percentage":10,"minLimit":100}
+        """.data(using: .utf8)!
+        let wantsCard = try JSONDecoder().decode(Subcategory.self, from: wantsJSON)
+
+        XCTAssertFalse(wantsCard.requiresMinimumAmount)
+        XCTAssertEqual(wantsCard.minLimit, 100)
+    }
+
+    func testPermanentMinimumRequirementCannotBeDisabledByInitializer() {
+        let housing = Subcategory(
+            name: "Жилье",
+            isSystem: true,
+            systemKey: .housing,
+            percentage: 25,
+            minLimit: 1_000,
+            requiresMinimumAmount: false
+        )
+        let custom = Subcategory(
+            name: "Своя карточка",
+            percentage: 10,
+            minLimit: 500,
+            requiresMinimumAmount: false
+        )
+
+        XCTAssertTrue(housing.requiresMinimumAmount)
+        XCTAssertFalse(custom.requiresMinimumAmount)
+        XCTAssertEqual(custom.minLimit, 500)
+    }
+
     func testRequiredStateMigratesByCatalogAvailability() throws {
         let recommendedJSON = """
         {"name":"Хобби","isSystem":true,"systemKey":"hobby","percentage":5}

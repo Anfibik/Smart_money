@@ -3,6 +3,112 @@ import XCTest
 
 @MainActor
 final class ExpenseFundingPreviewTests: XCTestCase {
+    func testCustomCardCanBeCreatedWithoutOptionalMinimum() throws {
+        let viewModel = makeViewModel(
+            subcategories: [
+                makeSubcategory(id: UUID(), name: "Existing", percentage: 50)
+            ]
+        )
+
+        let result = viewModel.addCustomSubcategory(
+            categoryType: .essentials,
+            name: "Optional minimum",
+            iconName: "creditcard.fill",
+            percentage: 25,
+            minLimit: 0,
+            maxLimit: 0,
+            priority: .low,
+            requiresMinimumAmount: false
+        )
+
+        let id = try result.get()
+        let card = try allocation(in: viewModel, subcategoryID: id)
+        XCTAssertNil(card.minLimit)
+        XCTAssertFalse(card.requiresMinimumAmount)
+    }
+
+    func testCustomCardRejectsMissingRequiredMinimum() {
+        let viewModel = makeViewModel(
+            subcategories: [
+                makeSubcategory(id: UUID(), name: "Existing", percentage: 50)
+            ]
+        )
+
+        let result = viewModel.addCustomSubcategory(
+            categoryType: .essentials,
+            name: "Required minimum",
+            iconName: "creditcard.fill",
+            percentage: 25,
+            minLimit: 0,
+            maxLimit: 0,
+            priority: .low,
+            requiresMinimumAmount: true
+        )
+
+        guard case .failure(.invalidParameters) = result else {
+            return XCTFail("Expected a missing mandatory minimum to be rejected")
+        }
+    }
+
+    func testDisablingRequirementKeepsExistingMinimumAmount() throws {
+        let cardID = UUID()
+        let card = Smart_money.Subcategory(
+            id: cardID,
+            name: "Editable",
+            percentage: 50,
+            minLimit: 100,
+            requiresMinimumAmount: true,
+            priority: Smart_money.SubcategoryPriorityLevel.low.rawValue
+        )
+        let viewModel = makeViewModel(subcategories: [card])
+
+        viewModel.updateSubcategory(
+            categoryType: .essentials,
+            subcategoryID: cardID,
+            name: "Editable",
+            iconName: card.iconName,
+            percentage: 50,
+            minLimit: 100,
+            maxLimit: 0,
+            priority: .low,
+            requiresMinimumAmount: false
+        )
+
+        let updated = try allocation(in: viewModel, subcategoryID: cardID)
+        XCTAssertFalse(updated.requiresMinimumAmount)
+        XCTAssertEqual(updated.minLimit, 100)
+    }
+
+    func testPermanentSystemCardRequirementCannotBeDisabledByUpdate() throws {
+        let housingID = UUID()
+        let housing = Smart_money.Subcategory(
+            id: housingID,
+            name: "Жилье",
+            isSystem: true,
+            systemKey: .housing,
+            percentage: 50,
+            minLimit: 100,
+            requiresMinimumAmount: false,
+            priority: Smart_money.SubcategoryPriorityLevel.high.rawValue
+        )
+        let viewModel = makeViewModel(subcategories: [housing])
+
+        viewModel.updateSubcategory(
+            categoryType: .essentials,
+            subcategoryID: housingID,
+            name: housing.name,
+            iconName: housing.iconName,
+            percentage: 50,
+            minLimit: 100,
+            maxLimit: 0,
+            priority: .high,
+            requiresMinimumAmount: false
+        )
+
+        let updated = try allocation(in: viewModel, subcategoryID: housingID)
+        XCTAssertTrue(updated.requiresMinimumAmount)
+    }
+
     func testPreviewUsesActualSelectedCardRemainder() throws {
         let targetID = UUID()
         let donorID = UUID()
